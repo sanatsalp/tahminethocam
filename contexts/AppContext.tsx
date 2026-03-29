@@ -81,9 +81,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const inFlight = useRef<Record<string, Promise<void> | null>>({});
 
   const mapProfile = useCallback((row: Record<string, unknown>): Profile => ({
-    ...(row as Profile),
-    avatarUrl: row.avatar_url as string | undefined,
-    chatBlocked: row.chat_blocked as boolean | undefined,
+    id: String(row.id ?? ""),
+    username: String(row.username ?? ""),
+    email: String(row.email ?? ""),
+    role: (row.role as Profile["role"]) ?? "user",
+    credits: Number(row.credits ?? 0),
+    created_at: String(row.created_at ?? new Date().toISOString()),
+    avatarUrl: (row.avatar_url as string | undefined) || undefined,
+    chatBlocked: Boolean(row.chat_blocked),
+    is_approved: row.is_approved as boolean | undefined,
+    is_blocked: row.is_blocked as boolean | undefined,
   }), []);
 
   const mapSettings = useCallback((settingsRow: Record<string, unknown> | null): SiteSettings => {
