@@ -21,7 +21,7 @@ export default function RegisterPage() {
     if (form.password.length < 6) { setError("Şifre en az 6 karakter olmalı"); return; }
     setLoading(true);
     await new Promise(r => setTimeout(r, 700));
-    const result = register(form.username, form.email, form.password);
+    const result = await register(form.username, form.email, form.password);
     setLoading(false);
     if (result.success) setSuccess(true);
     else setError(result.error || "Hata");

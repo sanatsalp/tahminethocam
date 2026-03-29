@@ -51,10 +51,10 @@ export default function ChatPage() {
   const isChatBlocked = currentUserData?.chatBlocked;
   const pinnedMsg = chatMessages.find(m => m.pinned);
 
-  function handleSend(e: React.FormEvent) {
+  async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    const result = sendChatMessage(text.trim());
+    const result = await sendChatMessage(text.trim());
     if (result.success) { setText(""); inputRef.current?.focus(); }
     else setError(result.error || "Hata");
   }

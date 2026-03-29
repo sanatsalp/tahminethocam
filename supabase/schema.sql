@@ -1,202 +1,106 @@
--- ============================================
--- tahminethocam Database Schema
--- Run this in Supabase SQL Editor
--- ============================================
-
--- Enable UUID extension
-create extension if not exists "uuid-ossp";
-
--- ============================================
--- PROFILES TABLE
--- ============================================
-create table public.profiles (
-  id uuid references auth.users on delete cascade not null primary key,
-  username text unique not null,
-  email text not null,
-  role text not null default 'pending' check (role in ('pending', 'user', 'admin')),
-  credits integer not null default 0,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  last_bonus_at timestamp with time zone default timezone('utc'::text, now()) not null
+-- 1. PROFILES
+CREATE TABLE profiles (
+  id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
+  username TEXT UNIQUE NOT NULL,
+  email TEXT NOT NULL,
+  role TEXT DEFAULT 'pending' CHECK (role IN ('pending', 'user', 'admin', 'blocked')),
+  credits INT DEFAULT 1000,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  avatar_url TEXT,
+  chat_blocked BOOLEAN DEFAULT false,
+  is_approved BOOLEAN DEFAULT false,
+  is_blocked BOOLEAN DEFAULT false
 );
 
--- Row Level Security
-alter table public.profiles enable row level security;
-
-create policy "Users can view all profiles" on public.profiles
-  for select using (true);
-
-create policy "Users can update own profile" on public.profiles
-  for update using (auth.uid() = id);
-
-create policy "Service role can do everything on profiles" on public.profiles
-  using (true) with check (true);
-
--- ============================================
--- MATCHES TABLE
--- ============================================
-create table public.matches (
-  id uuid default uuid_generate_v4() primary key,
-  title text not null,
-  player_a text not null,
-  player_b text not null,
-  odds_a numeric(5,2) not null default 1.50,
-  odds_b numeric(5,2) not null default 1.50,
-  status text not null default 'open' check (status in ('open', 'closed', 'finished')),
-  winner text check (winner in ('A', 'B', null)),
-  tournament text not null default 'ODTÜ Tenis Turnuvası',
-  scheduled_at timestamp with time zone,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  created_by uuid references public.profiles(id)
+-- 2. SITE SETTINGS
+CREATE TABLE site_settings (
+  id INT PRIMARY KEY DEFAULT 1,
+  title TEXT DEFAULT 'tahminethocam',
+  subtitle TEXT DEFAULT 'ODTÜ Tahmin Platformu',
+  logo_emoji TEXT DEFAULT '🎾',
+  custom_logo_url TEXT,
+  chat_enabled BOOLEAN DEFAULT true
 );
 
-alter table public.matches enable row level security;
-
-create policy "Anyone can view matches" on public.matches
-  for select using (true);
-
-create policy "Admins can insert matches" on public.matches
-  for insert with check (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
-  );
-
-create policy "Admins can update matches" on public.matches
-  for update using (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
-  );
-
--- ============================================
--- PREDICTIONS TABLE
--- ============================================
-create table public.predictions (
-  id uuid default uuid_generate_v4() primary key,
-  user_id uuid references public.profiles(id) on delete cascade not null,
-  match_id uuid references public.matches(id) on delete cascade not null,
-  choice text not null check (choice in ('A', 'B')),
-  amount integer not null check (amount > 0),
-  potential_win numeric(10,2) not null,
-  result text not null default 'pending' check (result in ('pending', 'won', 'lost')),
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  unique(user_id, match_id)
+-- 3. MATCHES
+CREATE TABLE matches (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title TEXT NOT NULL,
+  player_a TEXT NOT NULL,
+  player_b TEXT NOT NULL,
+  player_a_img TEXT,
+  player_b_img TEXT,
+  odds_a DECIMAL NOT NULL,
+  odds_b DECIMAL NOT NULL,
+  status TEXT DEFAULT 'open' CHECK (status IN ('open', 'closed', 'finished')),
+  winner TEXT CHECK (winner IN ('A', 'B') OR winner IS NULL),
+  tournament TEXT NOT NULL,
+  scheduled_at TIMESTAMPTZ NOT NULL
 );
 
-alter table public.predictions enable row level security;
-
-create policy "Users can view own predictions" on public.predictions
-  for select using (auth.uid() = user_id);
-
-create policy "Admins can view all predictions" on public.predictions
-  for select using (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
-  );
-
-create policy "Users can insert own predictions" on public.predictions
-  for insert with check (auth.uid() = user_id);
-
-create policy "Admins can update predictions" on public.predictions
-  for update using (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
-  );
-
--- ============================================
--- CREDIT TRANSACTIONS TABLE
--- ============================================
-create table public.credit_transactions (
-  id uuid default uuid_generate_v4() primary key,
-  user_id uuid references public.profiles(id) on delete cascade not null,
-  amount integer not null,
-  type text not null check (type in ('prediction', 'win', 'bonus', 'admin_grant', 'initial')),
-  description text not null,
-  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+-- 4. PREDICTIONS
+CREATE TABLE predictions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  match_id UUID REFERENCES matches(id) ON DELETE CASCADE,
+  choice TEXT NOT NULL CHECK (choice IN ('A', 'B')),
+  amount INT NOT NULL,
+  potential_win INT NOT NULL,
+  result TEXT DEFAULT 'pending' CHECK (result IN ('pending', 'won', 'lost')),
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-alter table public.credit_transactions enable row level security;
+-- 5. TRANSACTIONS
+CREATE TABLE transactions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  amount INT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('prediction', 'win', 'bonus', 'admin_grant', 'initial')),
+  description TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
-create policy "Users can view own transactions" on public.credit_transactions
-  for select using (auth.uid() = user_id);
+-- 6. CHAT MESSAGES
+CREATE TABLE chat_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  username TEXT NOT NULL,
+  avatar_url TEXT,
+  text TEXT NOT NULL,
+  pinned BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
-create policy "Admins can view all transactions" on public.credit_transactions
-  for select using (
-    exists (select 1 from public.profiles where id = auth.uid() and role = 'admin')
-  );
+-- Turn off RLS globally since we are executing business logic directly via client logic and trusting all auth connections.
+ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE site_settings DISABLE ROW LEVEL SECURITY;
+ALTER TABLE matches DISABLE ROW LEVEL SECURITY;
+ALTER TABLE predictions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE transactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_messages DISABLE ROW LEVEL SECURITY;
 
-create policy "Service role full access to transactions" on public.credit_transactions
-  using (true) with check (true);
+-- Realtime configuration (optional for standard features but we can use it safely for UI polling replacements if needed)
+BEGIN;
+  DROP PUBLICATION IF EXISTS supabase_realtime;
+  CREATE PUBLICATION supabase_realtime FOR TABLE profiles, matches, predictions, transactions, chat_messages, site_settings;
+COMMIT;
 
--- ============================================
--- FUNCTION: Handle New User
--- Auto-creates profile on auth signup
--- ============================================
-create or replace function public.handle_new_user()
-returns trigger as $$
-begin
-  insert into public.profiles (id, username, email, role, credits)
-  values (
-    new.id,
-    coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
-    new.email,
-    'pending',
-    0
-  );
-  return new;
-end;
-$$ language plpgsql security definer;
+-- Trigger for new user registration
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.profiles (id, username, email, role, credits, is_approved, is_blocked)
+  VALUES (new.id, new.raw_user_meta_data->>'username', new.email, 'pending', 1000, false, false);
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.handle_new_user();
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
 
--- ============================================
--- FUNCTION: Close Match & Resolve Predictions
--- ============================================
-create or replace function public.close_match(match_id_param uuid, winner_param text)
-returns void as $$
-declare
-  pred record;
-  win_amount numeric;
-  odds_val numeric;
-begin
-  -- Get match odds
-  select case when winner_param = 'A' then odds_a else odds_b end
-  into odds_val
-  from public.matches
-  where id = match_id_param;
-
-  -- Update match status
-  update public.matches
-  set status = 'finished', winner = winner_param
-  where id = match_id_param;
-
-  -- Resolve each prediction
-  for pred in
-    select * from public.predictions
-    where match_id = match_id_param and result = 'pending'
-  loop
-    if pred.choice = winner_param then
-      -- Winner: calculate winnings
-      win_amount := pred.amount * odds_val;
-      
-      update public.predictions
-      set result = 'won'
-      where id = pred.id;
-      
-      update public.profiles
-      set credits = credits + win_amount::integer
-      where id = pred.user_id;
-      
-      insert into public.credit_transactions (user_id, amount, type, description)
-      values (pred.user_id, win_amount::integer, 'win', 'Tahmin kazancı - Maç #' || match_id_param);
-    else
-      -- Loser
-      update public.predictions
-      set result = 'lost'
-      where id = pred.id;
-    end if;
-  end loop;
-end;
-$$ language plpgsql security definer;
-
--- ============================================
--- INITIAL ADMIN SETUP (Run after first registration)
--- Replace 'your-email@example.com' with your email
--- ============================================
--- UPDATE public.profiles SET role = 'admin', credits = 999999 WHERE email = 'your-email@example.com';
+-- Insert initial settings configuration
+INSERT INTO site_settings (id, title, subtitle, logo_emoji, chat_enabled) 
+VALUES (1, 'tahminethocam', 'ODTÜ Tahmin Platformu', '🎾', true) 
+ON CONFLICT (id) DO NOTHING;

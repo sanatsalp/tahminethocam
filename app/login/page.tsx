@@ -20,7 +20,7 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     await new Promise(r => setTimeout(r, 600));
-    const result = login(username.trim(), password);
+    const result = await login(username.trim(), password);
     setLoading(false);
     if (result.success) router.push("/dashboard");
     else setError(result.error || "Hata");

@@ -2,11 +2,9 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import {
-  Profile, Match, Prediction, CreditTransaction, ChatMessage, SiteSettings,
-  MOCK_CREDENTIALS, MOCK_USERS, MOCK_MATCHES,
-  INITIAL_PREDICTIONS, INITIAL_TRANSACTIONS, INITIAL_CHAT_MESSAGES,
-  DEFAULT_SITE_SETTINGS,
+  Profile, Match, Prediction, CreditTransaction, ChatMessage, SiteSettings, DEFAULT_SITE_SETTINGS
 } from "@/lib/mock-data";
+import { supabase } from "@/lib/supabase";
 
 interface AppState {
   currentUser: Profile | null;
@@ -20,294 +18,297 @@ interface AppState {
 }
 
 interface AppContextType extends AppState {
-  // Auth
-  login: (username: string, password: string) => { success: boolean; error?: string };
-  logout: () => void;
-  register: (username: string, email: string, password: string) => { success: boolean; error?: string };
-  // Profile
-  setUserAvatar: (userId: string, dataUrl: string) => void;
-  // Predictions
-  placePrediction: (matchId: string, choice: "A" | "B", amount: number) => { success: boolean; error?: string };
-  // Admin - Users
-  approveUser: (userId: string) => void;
-  rejectUser: (userId: string) => void;
-  deleteUser: (userId: string) => void;
-  blockUser: (userId: string) => void;
-  unblockUser: (userId: string) => void;
-  addCredits: (userId: string, amount: number) => void;
-  removeCredits: (userId: string, amount: number) => void;
-  // Admin - Matches
-  createMatch: (match: Omit<Match, "id" | "winner" | "status">) => void;
-  closeMatch: (matchId: string, winner: "A" | "B") => void;
-  deleteMatch: (matchId: string) => void;
-  // Admin - Chat
-  toggleChatEnabled: () => void;
-  blockUserFromChat: (userId: string) => void;
-  unblockUserFromChat: (userId: string) => void;
-  deleteChatMessage: (id: string) => void;
-  pinChatMessage: (id: string) => void;
-  unpinChatMessage: (id: string) => void;
-  // Admin - Settings
-  updateSiteSettings: (settings: Partial<SiteSettings>) => void;
-  // Chat - User
-  sendChatMessage: (text: string) => { success: boolean; error?: string };
-  // Helpers
+  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
+  register: (username: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  setUserAvatar: (userId: string, dataUrl: string) => Promise<void>;
+  placePrediction: (matchId: string, choice: "A" | "B", amount: number) => Promise<{ success: boolean; error?: string }>;
+  approveUser: (userId: string) => Promise<void>;
+  rejectUser: (userId: string) => Promise<void>;
+  deleteUser: (userId: string) => Promise<void>;
+  blockUser: (userId: string) => Promise<void>;
+  unblockUser: (userId: string) => Promise<void>;
+  addCredits: (userId: string, amount: number) => Promise<void>;
+  removeCredits: (userId: string, amount: number) => Promise<void>;
+  createMatch: (match: Omit<Match, "id" | "winner" | "status">) => Promise<void>;
+  closeMatch: (matchId: string, winner: "A" | "B") => Promise<void>;
+  deleteMatch: (matchId: string) => Promise<void>;
+  toggleChatEnabled: () => Promise<void>;
+  blockUserFromChat: (userId: string) => Promise<void>;
+  unblockUserFromChat: (userId: string) => Promise<void>;
+  deleteChatMessage: (id: string) => Promise<void>;
+  pinChatMessage: (id: string) => Promise<void>;
+  unpinChatMessage: (id: string) => Promise<void>;
+  updateSiteSettings: (settings: Partial<SiteSettings>) => Promise<void>;
+  sendChatMessage: (text: string) => Promise<{ success: boolean; error?: string }>;
   getUserById: (id: string) => Profile | undefined;
   getUserPredictions: (userId: string) => Prediction[];
 }
 
 const AppContext = createContext<AppContextType | null>(null);
-const STORAGE_KEY = "tahminethocam_v3";
 
 function getInitialState(): AppState {
   return {
     currentUser: null,
-    users: MOCK_USERS,
-    matches: MOCK_MATCHES,
-    predictions: INITIAL_PREDICTIONS,
-    transactions: INITIAL_TRANSACTIONS,
-    chatMessages: INITIAL_CHAT_MESSAGES,
+    users: [],
+    matches: [],
+    predictions: [],
+    transactions: [],
+    chatMessages: [],
     chatEnabled: true,
     siteSettings: DEFAULT_SITE_SETTINGS,
   };
 }
 
-function loadState(): AppState {
-  if (typeof window === "undefined") return getInitialState();
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      // Merge with defaults to handle new fields in future updates
-      return {
-        ...getInitialState(),
-        ...parsed,
-        siteSettings: { ...DEFAULT_SITE_SETTINGS, ...(parsed.siteSettings || {}) },
-      };
-    }
-  } catch {}
-  return getInitialState();
-}
-
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(getInitialState);
 
-  useEffect(() => {
-    const loaded = loadState();
-    setState(loaded);
+  const fetchGlobalData = useCallback(async () => {
+    // Parallel fetching for performance
+    const [ { data: users }, { data: matches }, { data: predictions }, { data: transactions }, { data: chatMsgs }, { data: settingsRow } ] = await Promise.all([
+      supabase.from("profiles").select("*").order("credits", { ascending: false }),
+      supabase.from("matches").select("*").order("scheduled_at", { ascending: true }),
+      supabase.from("predictions").select("*"),
+      supabase.from("transactions").select("*").order("created_at", { ascending: false }),
+      supabase.from("chat_messages").select("*").order("created_at", { ascending: true }),
+      supabase.from("site_settings").select("*").eq("id", 1).single(),
+    ]);
+
+    const mappedUsers = (users || []).map(u => ({ ...u, avatarUrl: u.avatar_url, chatBlocked: u.chat_blocked })) as Profile[];
+    const mappedChats = (chatMsgs || []).map(m => ({ ...m, avatarUrl: m.avatar_url })) as ChatMessage[];
+    const mappedSettings = settingsRow ? {
+      title: settingsRow.title,
+      subtitle: settingsRow.subtitle,
+      logoEmoji: settingsRow.logo_emoji,
+      customLogoUrl: settingsRow.custom_logo_url,
+      chatEnabled: settingsRow.chat_enabled !== false
+    } : DEFAULT_SITE_SETTINGS;
+
+    // Detect session
+    const { data: { session } } = await supabase.auth.getSession();
+    let currentUser = null;
+    if (session) {
+      currentUser = mappedUsers.find(u => u.id === session.user.id) || null;
+    }
+
+    setState({
+      currentUser,
+      users: mappedUsers,
+      matches: matches || [],
+      predictions: predictions || [],
+      transactions: transactions || [],
+      chatMessages: mappedChats,
+      chatEnabled: mappedSettings.chatEnabled ?? true,
+      siteSettings: mappedSettings,
+    });
   }, []);
 
-  const save = useCallback((next: AppState) => {
-    setState(next);
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch {}
-  }, []);
+  useEffect(() => {
+    fetchGlobalData();
+
+    // Subscribe to realtime changes on all tables. In production we might map individually.
+    const channel = supabase.channel("global_sync")
+      .on("postgres_changes", { event: "*", schema: "public" }, () => {
+        fetchGlobalData(); // Refetch all state efficiently
+      })
+      .subscribe();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
+      fetchGlobalData();
+    });
+
+    return () => {
+      channel.unsubscribe();
+      subscription.unsubscribe();
+    };
+  }, [fetchGlobalData]);
 
   // ── Auth ─────────────────────────────────────────────────
-  const login = useCallback((username: string, password: string) => {
-    const cred = MOCK_CREDENTIALS[username];
-    if (!cred || cred.password !== password)
-      return { success: false, error: "Kullanıcı adı veya şifre hatalı" };
-    const user = state.users.find(u => u.id === cred.userId);
-    if (!user) return { success: false, error: "Kullanıcı bulunamadı" };
-    if (user.role === "pending") return { success: false, error: "Hesabınız henüz onaylanmamış. Admin onayını bekleyin." };
-    if (user.role === "blocked") return { success: false, error: "Hesabınız engellenmiştir. Lütfen yönetici ile iletişime geçin." };
-    save({ ...state, currentUser: user });
-    return { success: true };
-  }, [state, save]);
+  const login = async (username: string, password: string) => {
+    // Find the email from the username in the DB since Supabase uses email/password
+    const { data: userRaw, error: userErr } = await supabase.from("profiles").select("email, role").eq("username", username).single();
+    if (!userRaw || userErr) return { success: false, error: "Kullanıcı adı hatalı veya bulunamadı" };
+    
+    // Check local roles before logging in completely
+    if (userRaw.role === "pending") return { success: false, error: "Hesabınız henüz onaylanmamış. Admin onayını bekleyin." };
+    if (userRaw.role === "blocked") return { success: false, error: "Hesabınız engellenmiştir. Lütfen yönetici ile iletişime geçin." };
 
-  const logout = useCallback(() => save({ ...state, currentUser: null }), [state, save]);
-
-  const register = useCallback((username: string, email: string, password: string) => {
-    if (!/^[a-z0-9_]+$/.test(username))
-      return { success: false, error: "Kullanıcı adı sadece küçük harf, rakam ve alt çizgi içerebilir" };
-    if (state.users.some(u => u.username === username))
-      return { success: false, error: "Bu kullanıcı adı zaten kullanımda" };
-    if (state.users.some(u => u.email === email))
-      return { success: false, error: "Bu e-posta zaten kullanımda" };
-    const newUser: Profile = {
-      id: `user-${Date.now()}`,
-      username, email, role: "pending", credits: 0,
-      created_at: new Date().toISOString(),
-    };
-    MOCK_CREDENTIALS[username] = { password, userId: newUser.id };
-    save({ ...state, users: [...state.users, newUser] });
+    const { error: authErr } = await supabase.auth.signInWithPassword({ email: userRaw.email, password });
+    if (authErr) return { success: false, error: "Şifre hatalı" };
+    
+    await fetchGlobalData();
     return { success: true };
-  }, [state, save]);
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
+    setState(s => ({ ...s, currentUser: null }));
+  };
+
+  const register = async (username: string, email: string, password: string) => {
+    if (!/^[a-z0-9_]+$/.test(username)) return { success: false, error: "Kullanıcı adı sadece küçük harf, rakam ve alt çizgi içerebilir" };
+    
+    const { data: existingUser } = await supabase.from("profiles").select("id").or(`username.eq.${username},email.eq.${email}`).limit(1);
+    if (existingUser && existingUser.length > 0) return { success: false, error: "Bu kullanıcı adı veya e-posta zaten kullanımda" };
+    
+    const { error } = await supabase.auth.signUp({ email, password, options: { data: { username } } });
+    if (error) return { success: false, error: error.message };
+    
+    await fetchGlobalData();
+    return { success: true };
+  };
 
   // ── Profile ───────────────────────────────────────────────
-  const setUserAvatar = useCallback((userId: string, dataUrl: string) => {
-    const updatedUsers = state.users.map(u => u.id === userId ? { ...u, avatarUrl: dataUrl } : u);
-    const updatedCurrentUser = state.currentUser?.id === userId
-      ? { ...state.currentUser, avatarUrl: dataUrl } : state.currentUser;
-    save({ ...state, users: updatedUsers, currentUser: updatedCurrentUser });
-  }, [state, save]);
+  const setUserAvatar = async (userId: string, dataUrl: string) => {
+    await supabase.from("profiles").update({ avatar_url: dataUrl }).eq("id", userId);
+  };
 
   // ── Predictions ───────────────────────────────────────────
-  const placePrediction = useCallback((matchId: string, choice: "A" | "B", amount: number) => {
+  const placePrediction = async (matchId: string, choice: "A" | "B", amount: number) => {
     if (!state.currentUser) return { success: false, error: "Giriş yapmanız gerekiyor" };
     const user = state.users.find(u => u.id === state.currentUser!.id)!;
     if (user.credits < amount) return { success: false, error: "Yetersiz kredi" };
+    
     const match = state.matches.find(m => m.id === matchId);
     if (!match || match.status !== "open") return { success: false, error: "Bu maça tahmin yapılamaz" };
     if (state.predictions.find(p => p.user_id === user.id && p.match_id === matchId))
       return { success: false, error: "Bu maça zaten tahmin yaptınız" };
+
     const odds = choice === "A" ? match.odds_a : match.odds_b;
     const potentialWin = Math.round(amount * odds);
-    const newPrediction: Prediction = {
-      id: `pred-${Date.now()}`, user_id: user.id, match_id: matchId,
-      choice, amount, potential_win: potentialWin, result: "pending",
-      created_at: new Date().toISOString(), match,
-    };
-    const newTx: CreditTransaction = {
-      id: `tx-${Date.now()}`, user_id: user.id, amount: -amount, type: "prediction",
-      description: `Tahmin - ${match.player_a} vs ${match.player_b}`, created_at: new Date().toISOString(),
-    };
-    const updatedUsers = state.users.map(u => u.id === user.id ? { ...u, credits: u.credits - amount } : u);
-    const updatedCurrentUser = { ...state.currentUser!, credits: state.currentUser!.credits - amount };
-    save({ ...state, users: updatedUsers, currentUser: updatedCurrentUser,
-      predictions: [...state.predictions, newPrediction], transactions: [...state.transactions, newTx] });
+
+    const { error } = await supabase.from("predictions").insert({
+      user_id: user.id, match_id: matchId, choice, amount, potential_win: potentialWin, result: "pending"
+    });
+    if (error) return { success: false, error: "Bir sistem hatası oluştu." };
+
+    await supabase.from("transactions").insert({
+      user_id: user.id, amount: -amount, type: "prediction", description: `Tahmin - ${match.player_a} vs ${match.player_b}`
+    });
+    await supabase.from("profiles").update({ credits: user.credits - amount }).eq("id", user.id);
+    
     return { success: true };
-  }, [state, save]);
+  };
 
   // ── Admin - Users ─────────────────────────────────────────
-  const approveUser = useCallback((userId: string) => {
-    const updatedUsers = state.users.map(u => u.id === userId ? { ...u, role: "user" as const, credits: 1000 } : u);
-    const newTx: CreditTransaction = { id: `tx-${Date.now()}`, user_id: userId, amount: 1000,
-      type: "initial", description: "Başlangıç kredisi - Admin onayı", created_at: new Date().toISOString() };
-    save({ ...state, users: updatedUsers, transactions: [...state.transactions, newTx] });
-  }, [state, save]);
+  const approveUser = async (userId: string) => {
+    await supabase.from("profiles").update({ role: "user", credits: 1000 }).eq("id", userId);
+    await supabase.from("transactions").insert({ user_id: userId, amount: 1000, type: "initial", description: "Başlangıç kredisi - Admin onayı" });
+  };
 
-  const rejectUser = useCallback((userId: string) => {
-    save({ ...state, users: state.users.filter(u => u.id !== userId) });
-  }, [state, save]);
+  const rejectUser = async (userId: string) => {
+    await supabase.from("profiles").delete().eq("id", userId);
+  };
 
-  const deleteUser = useCallback((userId: string) => {
-    if (userId === state.currentUser?.id) return; // can't delete yourself
-    const updatedUsers = state.users.filter(u => u.id !== userId);
-    const updatedPredictions = state.predictions.filter(p => p.user_id !== userId);
-    const updatedTransactions = state.transactions.filter(t => t.user_id !== userId);
-    const updatedMessages = state.chatMessages.filter(m => m.user_id !== userId);
-    save({ ...state, users: updatedUsers, predictions: updatedPredictions,
-      transactions: updatedTransactions, chatMessages: updatedMessages });
-  }, [state, save]);
+  const deleteUser = async (userId: string) => {
+    if (userId === state.currentUser?.id) return;
+    await supabase.from("profiles").delete().eq("id", userId); // Will cascade to predictions/chat
+  };
 
-  const blockUser = useCallback((userId: string) => {
-    const updatedUsers = state.users.map(u => u.id === userId ? { ...u, role: "blocked" as const } : u);
-    const updatedCurrentUser = state.currentUser?.id === userId ? null : state.currentUser;
-    save({ ...state, users: updatedUsers, currentUser: updatedCurrentUser });
-  }, [state, save]);
+  const blockUser = async (userId: string) => {
+    await supabase.from("profiles").update({ role: "blocked" }).eq("id", userId);
+  };
 
-  const unblockUser = useCallback((userId: string) => {
-    const updatedUsers = state.users.map(u => u.id === userId ? { ...u, role: "user" as const } : u);
-    save({ ...state, users: updatedUsers });
-  }, [state, save]);
+  const unblockUser = async (userId: string) => {
+    await supabase.from("profiles").update({ role: "user" }).eq("id", userId);
+  };
 
-  const addCredits = useCallback((userId: string, amount: number) => {
-    const updatedUsers = state.users.map(u => u.id === userId ? { ...u, credits: u.credits + amount } : u);
-    const newTx: CreditTransaction = { id: `tx-${Date.now()}`, user_id: userId, amount,
-      type: "admin_grant", description: `Admin kredi ekledi: +${amount}`, created_at: new Date().toISOString() };
-    const updatedCurrentUser = state.currentUser?.id === userId
-      ? { ...state.currentUser, credits: state.currentUser.credits + amount } : state.currentUser;
-    save({ ...state, users: updatedUsers, currentUser: updatedCurrentUser, transactions: [...state.transactions, newTx] });
-  }, [state, save]);
+  const addCredits = async (userId: string, amount: number) => {
+    const user = state.users.find(u => u.id === userId);
+    if (!user) return;
+    await supabase.from("profiles").update({ credits: user.credits + amount }).eq("id", userId);
+    await supabase.from("transactions").insert({ user_id: userId, amount, type: "admin_grant", description: `Admin kredi ekledi: +${amount}` });
+  };
 
-  const removeCredits = useCallback((userId: string, amount: number) => {
+  const removeCredits = async (userId: string, amount: number) => {
     const user = state.users.find(u => u.id === userId);
     if (!user) return;
     const deduct = Math.min(amount, user.credits);
-    const updatedUsers = state.users.map(u => u.id === userId ? { ...u, credits: Math.max(0, u.credits - amount) } : u);
-    const newTx: CreditTransaction = { id: `tx-${Date.now()}`, user_id: userId, amount: -deduct,
-      type: "admin_grant", description: `Admin kredi kesti: -${deduct}`, created_at: new Date().toISOString() };
-    const updatedCurrentUser = state.currentUser?.id === userId
-      ? { ...state.currentUser, credits: Math.max(0, state.currentUser.credits - amount) } : state.currentUser;
-    save({ ...state, users: updatedUsers, currentUser: updatedCurrentUser, transactions: [...state.transactions, newTx] });
-  }, [state, save]);
+    await supabase.from("profiles").update({ credits: Math.max(0, user.credits - amount) }).eq("id", userId);
+    await supabase.from("transactions").insert({ user_id: userId, amount: -deduct, type: "admin_grant", description: `Admin kredi kesti: -${deduct}` });
+  };
 
   // ── Admin - Matches ───────────────────────────────────────
-  const createMatch = useCallback((matchData: Omit<Match, "id" | "winner" | "status">) => {
-    const newMatch: Match = { ...matchData, id: `match-${Date.now()}`, winner: null, status: "open" };
-    save({ ...state, matches: [...state.matches, newMatch] });
-  }, [state, save]);
+  const createMatch = async (matchData: Omit<Match, "id" | "winner" | "status">) => {
+    await supabase.from("matches").insert({ ...matchData, winner: null, status: "open" });
+  };
 
-  const closeMatch = useCallback((matchId: string, winner: "A" | "B") => {
+  const closeMatch = async (matchId: string, winner: "A" | "B") => {
     const match = state.matches.find(m => m.id === matchId);
     if (!match) return;
+    await supabase.from("matches").update({ status: "finished", winner }).eq("id", matchId);
+    
     const odds = winner === "A" ? match.odds_a : match.odds_b;
-    const updatedMatches = state.matches.map(m =>
-      m.id === matchId ? { ...m, status: "finished" as const, winner } : m);
-    const updatedPredictions = state.predictions.map(p =>
-      p.match_id !== matchId || p.result !== "pending" ? p
-        : { ...p, result: p.choice === winner ? "won" as const : "lost" as const });
-    let updatedUsers = [...state.users];
-    const newTxs: CreditTransaction[] = [];
-    state.predictions.filter(p => p.match_id === matchId && p.result === "pending").forEach(p => {
+    const pendingPreds = state.predictions.filter(p => p.match_id === matchId && p.result === "pending");
+    
+    for (const p of pendingPreds) {
       if (p.choice === winner) {
-        const win = Math.round(p.amount * odds);
-        updatedUsers = updatedUsers.map(u => u.id === p.user_id ? { ...u, credits: u.credits + win } : u);
-        newTxs.push({ id: `tx-${Date.now()}-${p.id}`, user_id: p.user_id, amount: win, type: "win",
-          description: `Kazanç - ${match.player_a} vs ${match.player_b}`, created_at: new Date().toISOString() });
+        const winAmount = Math.round(p.amount * odds);
+        await supabase.from("predictions").update({ result: "won" }).eq("id", p.id);
+        const u = state.users.find(u => u.id === p.user_id);
+        if (u) {
+          await supabase.from("profiles").update({ credits: u.credits + winAmount }).eq("id", u.id);
+          await supabase.from("transactions").insert({ user_id: p.user_id, amount: winAmount, type: "win", description: `Kazanç - ${match.player_a} vs ${match.player_b}` });
+        }
+      } else {
+        await supabase.from("predictions").update({ result: "lost" }).eq("id", p.id);
       }
-    });
-    const updatedCurrentUser = state.currentUser ? updatedUsers.find(u => u.id === state.currentUser!.id) || state.currentUser : null;
-    save({ ...state, matches: updatedMatches, predictions: updatedPredictions,
-      users: updatedUsers, currentUser: updatedCurrentUser, transactions: [...state.transactions, ...newTxs] });
-  }, [state, save]);
+    }
+  };
 
-  const deleteMatch = useCallback((matchId: string) => {
-    save({ ...state, matches: state.matches.filter(m => m.id !== matchId),
-      predictions: state.predictions.filter(p => p.match_id !== matchId) });
-  }, [state, save]);
+  const deleteMatch = async (matchId: string) => {
+    await supabase.from("matches").delete().eq("id", matchId);
+  };
 
-  // ── Admin - Chat ──────────────────────────────────────────
-  const toggleChatEnabled = useCallback(() => {
-    save({ ...state, chatEnabled: !state.chatEnabled });
-  }, [state, save]);
+  // ── Admin - Chat / Settings ───────────────────────────────
+  const toggleChatEnabled = async () => {
+    await supabase.from("site_settings").update({ chat_enabled: !state.chatEnabled }).eq("id", 1);
+  };
 
-  const blockUserFromChat = useCallback((userId: string) => {
-    const updatedUsers = state.users.map(u => u.id === userId ? { ...u, chatBlocked: true } : u);
-    const updatedCurrentUser = state.currentUser?.id === userId
-      ? { ...state.currentUser, chatBlocked: true } : state.currentUser;
-    save({ ...state, users: updatedUsers, currentUser: updatedCurrentUser });
-  }, [state, save]);
+  const blockUserFromChat = async (userId: string) => {
+    await supabase.from("profiles").update({ chat_blocked: true }).eq("id", userId);
+  };
 
-  const unblockUserFromChat = useCallback((userId: string) => {
-    const updatedUsers = state.users.map(u => u.id === userId ? { ...u, chatBlocked: false } : u);
-    const updatedCurrentUser = state.currentUser?.id === userId
-      ? { ...state.currentUser, chatBlocked: false } : state.currentUser;
-    save({ ...state, users: updatedUsers, currentUser: updatedCurrentUser });
-  }, [state, save]);
+  const unblockUserFromChat = async (userId: string) => {
+    await supabase.from("profiles").update({ chat_blocked: false }).eq("id", userId);
+  };
 
-  const deleteChatMessage = useCallback((id: string) => {
-    save({ ...state, chatMessages: state.chatMessages.filter(m => m.id !== id) });
-  }, [state, save]);
+  const deleteChatMessage = async (id: string) => {
+    await supabase.from("chat_messages").delete().eq("id", id);
+  };
 
-  const pinChatMessage = useCallback((id: string) => {
-    save({ ...state, chatMessages: state.chatMessages.map(m => ({ ...m, pinned: m.id === id ? true : m.pinned })) });
-  }, [state, save]);
+  const pinChatMessage = async (id: string) => {
+    await supabase.from("chat_messages").update({ pinned: true }).eq("id", id);
+  };
 
-  const unpinChatMessage = useCallback((id: string) => {
-    save({ ...state, chatMessages: state.chatMessages.map(m => m.id === id ? { ...m, pinned: false } : m) });
-  }, [state, save]);
+  const unpinChatMessage = async (id: string) => {
+    await supabase.from("chat_messages").update({ pinned: false }).eq("id", id);
+  };
 
-  // ── Admin - Settings ──────────────────────────────────────
-  const updateSiteSettings = useCallback((settings: Partial<SiteSettings>) => {
-    save({ ...state, siteSettings: { ...state.siteSettings, ...settings } });
-  }, [state, save]);
+  const updateSiteSettings = async (settings: Partial<SiteSettings>) => {
+    const dbParams: any = {};
+    if (settings.title !== undefined) dbParams.title = settings.title;
+    if (settings.subtitle !== undefined) dbParams.subtitle = settings.subtitle;
+    if (settings.logoEmoji !== undefined) dbParams.logo_emoji = settings.logoEmoji;
+    if (settings.customLogoUrl !== undefined) dbParams.custom_logo_url = settings.customLogoUrl;
+    await supabase.from("site_settings").update(dbParams).eq("id", 1);
+  };
 
   // ── Chat - User ───────────────────────────────────────────
-  const sendChatMessage = useCallback((text: string) => {
+  const sendChatMessage = async (text: string) => {
     if (!state.currentUser) return { success: false, error: "Giriş yapmanız gerekiyor" };
     if (!state.chatEnabled) return { success: false, error: "Sohbet şu an devre dışı" };
     const user = state.users.find(u => u.id === state.currentUser!.id);
-    if (user?.chatBlocked) return { success: false, error: "Sohbet gönderme yetkiniz kaldırılmış" };
+    if (!user) return { success: false, error: "Kullanıcı bilgisi alınamadı" };
+    if (user.chatBlocked) return { success: false, error: "Sohbet gönderme yetkiniz kaldırılmış" };
     if (!text.trim()) return { success: false, error: "Mesaj boş olamaz" };
-    const msg: ChatMessage = {
-      id: `msg-${Date.now()}`, user_id: state.currentUser.id, username: state.currentUser.username,
-      avatarUrl: state.currentUser.avatarUrl, text: text.trim(), created_at: new Date().toISOString(),
-    };
-    save({ ...state, chatMessages: [...state.chatMessages, msg] });
+
+    const { error } = await supabase.from("chat_messages").insert({
+      user_id: user.id, username: user.username, avatar_url: user.avatarUrl, text: text.trim()
+    });
+    if (error) return { success: false, error: "Mesaj gönderilemedi" };
     return { success: true };
-  }, [state, save]);
+  };
 
   // ── Helpers ───────────────────────────────────────────────
   const getUserById = useCallback((id: string) => state.users.find(u => u.id === id), [state.users]);

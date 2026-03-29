@@ -32,7 +32,7 @@ export default function MatchDetailPage(props: { params: Promise<{ id: string }>
     if (!amt || amt < 10) { setError("En az 10 kredi giriniz"); return; }
     setLoading(true);
     await new Promise(r => setTimeout(r, 700));
-    const result = placePrediction(params.id, selected, amt);
+    const result = await placePrediction(params.id, selected, amt);
     setLoading(false);
     if (result.success) { setSuccess(true); setError(""); }
     else setError(result.error || "Hata");

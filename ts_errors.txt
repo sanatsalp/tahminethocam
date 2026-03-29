@@ -1,0 +1,11 @@
+app/chat/page.tsx(58,16): error TS2339: Property 'success' does not exist on type 'Promise<{ success: boolean; error?: string | undefined; }>'.
+app/chat/page.tsx(59,26): error TS2339: Property 'error' does not exist on type 'Promise<{ success: boolean; error?: string | undefined; }>'.
+app/login/page.tsx(25,16): error TS2339: Property 'success' does not exist on type 'Promise<{ success: boolean; error?: string | undefined; }>'.
+app/login/page.tsx(26,26): error TS2339: Property 'error' does not exist on type 'Promise<{ success: boolean; error?: string | undefined; }>'.
+app/matches/[id]/page.tsx(37,16): error TS2339: Property 'success' does not exist on type 'Promise<{ success: boolean; error?: string | undefined; }>'.
+app/matches/[id]/page.tsx(38,26): error TS2339: Property 'error' does not exist on type 'Promise<{ success: boolean; error?: string | undefined; }>'.
+app/register/page.tsx(26,16): error TS2339: Property 'success' does not exist on type 'Promise<{ success: boolean; error?: string | undefined; }>'.
+app/register/page.tsx(27,26): error TS2339: Property 'error' does not exist on type 'Promise<{ success: boolean; error?: string | undefined; }>'.
+contexts/AppContext.tsx(306,16): error TS18048: 'user' is possibly 'undefined'.
+contexts/AppContext.tsx(306,35): error TS18048: 'user' is possibly 'undefined'.
+contexts/AppContext.tsx(306,62): error TS18048: 'user' is possibly 'undefined'.
