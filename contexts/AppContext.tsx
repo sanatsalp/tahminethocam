@@ -47,6 +47,18 @@ interface AppContextType extends AppState {
 }
 
 const AppContext = createContext<AppContextType | null>(null);
+const PROFILE_CACHE_KEY = "app_profile_cache_v1";
+const SETTINGS_CACHE_KEY = "app_settings_cache_v1";
+const REFRESH_DEBOUNCE_MS = 400;
+
+const PROFILE_SELECT =
+  "id,username,email,role,credits,created_at,avatar_url,chat_blocked,is_approved,is_blocked";
+const SETTINGS_SELECT = "id,title,subtitle,logo_emoji,custom_logo_url,chat_enabled";
+const MATCHES_SELECT =
+  "id,title,player_a,player_b,player_a_img,player_b_img,odds_a,odds_b,status,winner,tournament,scheduled_at";
+const PREDICTIONS_SELECT = "id,user_id,match_id,choice,amount,potential_win,result,created_at";
+const TRANSACTIONS_SELECT = "id,user_id,amount,type,description,created_at";
+const CHAT_MESSAGES_SELECT = "id,user_id,username,avatar_url,text,created_at,pinned";
 
 function getInitialState(): AppState {
   return {
@@ -64,47 +76,74 @@ function getInitialState(): AppState {
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(getInitialState);
-  const isFetching = useRef(false);
+  const currentUserIdRef = useRef<string | null>(null);
+  const refreshTimers = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
+  const inFlight = useRef<Record<string, Promise<void> | null>>({});
 
-  const fetchGlobalData = useCallback(async (isInitial = false) => {
-    if (isFetching.current) return;
-    isFetching.current = true;
+  const mapProfile = useCallback((row: Record<string, unknown>): Profile => ({
+    ...(row as Profile),
+    avatarUrl: row.avatar_url as string | undefined,
+    chatBlocked: row.chat_blocked as boolean | undefined,
+  }), []);
+
+  const mapSettings = useCallback((settingsRow: Record<string, unknown> | null): SiteSettings => {
+    if (!settingsRow) return DEFAULT_SITE_SETTINGS;
+    return {
+      title: (settingsRow.title as string) || DEFAULT_SITE_SETTINGS.title,
+      subtitle: (settingsRow.subtitle as string) || DEFAULT_SITE_SETTINGS.subtitle,
+      logoEmoji: (settingsRow.logo_emoji as string) || DEFAULT_SITE_SETTINGS.logoEmoji,
+      customLogoUrl: settingsRow.custom_logo_url as string | undefined,
+      chatEnabled: settingsRow.chat_enabled !== false,
+    };
+  }, []);
+
+  const runDeduped = useCallback(async (key: string, fn: () => Promise<void>) => {
+    if (inFlight.current[key]) return inFlight.current[key];
+    const task = fn()
+      .catch((error) => {
+        console.error(`${key} refresh failed`, error);
+      })
+      .finally(() => {
+        inFlight.current[key] = null;
+      });
+    inFlight.current[key] = task;
+    return task;
+  }, []);
+
+  const scheduleRefresh = useCallback((key: string, fn: () => Promise<void>) => {
+    const existing = refreshTimers.current[key];
+    if (existing) clearTimeout(existing);
+    refreshTimers.current[key] = setTimeout(() => {
+      void runDeduped(key, fn);
+    }, REFRESH_DEBOUNCE_MS);
+  }, [runDeduped]);
+
+  const fetchSettings = useCallback(async () => {
+    const { data: settingsRow } = await supabase.from("site_settings").select(SETTINGS_SELECT).eq("id", 1).single();
+    const mappedSettings = mapSettings(settingsRow as Record<string, unknown> | null);
     try {
-      // Phase 1: Critical UI Unblock (Session & Settings)
-      const [
-        { data: settingsRow },
-        { data: { session } },
-      ] = await Promise.all([
-        supabase.from("site_settings").select("*").eq("id", 1).single(),
-        supabase.auth.getSession(),
-      ]);
+      sessionStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(mappedSettings));
+    } catch {}
+    setState((s) => ({
+      ...s,
+      siteSettings: mappedSettings,
+      chatEnabled: mappedSettings.chatEnabled ?? true,
+    }));
+  }, [mapSettings]);
 
-      const mappedSettings = settingsRow ? {
-        title: settingsRow.title,
-        subtitle: settingsRow.subtitle,
-        logoEmoji: settingsRow.logo_emoji,
-        customLogoUrl: settingsRow.custom_logo_url,
-        chatEnabled: settingsRow.chat_enabled !== false,
-      } : DEFAULT_SITE_SETTINGS;
+  const fetchProfile = useCallback(async (userId: string) => {
+    const { data: row } = await supabase.from("profiles").select(PROFILE_SELECT).eq("id", userId).single();
+    const mapped = row ? mapProfile(row as Record<string, unknown>) : null;
+    if (mapped) {
+      try {
+        sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(mapped));
+      } catch {}
+    }
+    setState((s) => ({ ...s, currentUser: mapped }));
+  }, [mapProfile]);
 
-      let currentUser: Profile | null = null;
-      if (session) {
-        const { data: userRaw } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
-        if (userRaw) {
-          currentUser = { ...userRaw, avatarUrl: userRaw.avatar_url, chatBlocked: userRaw.chat_blocked } as Profile;
-        }
-      }
-
-      // Early flush: Unblock AuthGuard rendering instantly
-      setState(s => ({
-        ...s,
-        currentUser,
-        authLoading: false,
-        siteSettings: mappedSettings,
-        chatEnabled: mappedSettings.chatEnabled ?? true,
-      }));
-
-      // Phase 2: Secondary Data (Background Loading)
+  const fetchSecondaryData = useCallback(async () => {
+    await runDeduped("secondary", async () => {
       const [
         { data: users },
         { data: matches },
@@ -112,53 +151,179 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         { data: transactions },
         { data: chatMsgs },
       ] = await Promise.all([
-        supabase.from("profiles").select("*").order("credits", { ascending: false }),
-        supabase.from("matches").select("*").order("scheduled_at", { ascending: true }),
-        supabase.from("predictions").select("*"),
-        supabase.from("transactions").select("*").order("created_at", { ascending: false }),
-        supabase.from("chat_messages").select("*").order("created_at", { ascending: true }),
+        supabase.from("profiles").select(PROFILE_SELECT).order("credits", { ascending: false }),
+        supabase.from("matches").select(MATCHES_SELECT).order("scheduled_at", { ascending: true }),
+        supabase.from("predictions").select(PREDICTIONS_SELECT),
+        supabase.from("transactions").select(TRANSACTIONS_SELECT).order("created_at", { ascending: false }),
+        supabase.from("chat_messages").select(CHAT_MESSAGES_SELECT).order("created_at", { ascending: true }).limit(200),
       ]);
 
-      const mappedUsers = (users || []).map(u => ({ ...u, avatarUrl: u.avatar_url, chatBlocked: u.chat_blocked })) as Profile[];
-      const mappedChats = (chatMsgs || []).map(m => ({ ...m, avatarUrl: m.avatar_url })) as ChatMessage[];
-
-      setState(s => ({
+      setState((s) => ({
         ...s,
-        users: mappedUsers,
-        matches: matches || [],
-        predictions: predictions || [],
-        transactions: transactions || [],
-        chatMessages: mappedChats,
+        users: (users || []).map((u) => mapProfile(u as Record<string, unknown>)),
+        matches: (matches || []) as Match[],
+        predictions: (predictions || []) as Prediction[],
+        transactions: (transactions || []) as CreditTransaction[],
+        chatMessages: (chatMsgs || []).map((m) => ({
+          ...(m as ChatMessage),
+          avatarUrl: (m as Record<string, unknown>).avatar_url as string | undefined,
+        })),
+      }));
+    });
+  }, [mapProfile, runDeduped]);
+
+  const bootstrapAuthAndCritical = useCallback(async () => {
+    try {
+      try {
+        const cachedSettings = sessionStorage.getItem(SETTINGS_CACHE_KEY);
+        if (cachedSettings) {
+          const parsed = JSON.parse(cachedSettings) as SiteSettings;
+          setState((s) => ({
+            ...s,
+            siteSettings: parsed,
+            chatEnabled: parsed.chatEnabled ?? true,
+          }));
+        }
+      } catch {}
+
+      const [
+        { data: { session } },
+        { data: settingsRow },
+      ] = await Promise.all([
+        supabase.auth.getSession(),
+        supabase.from("site_settings").select(SETTINGS_SELECT).eq("id", 1).single(),
+      ]);
+
+      const mappedSettings = mapSettings(settingsRow as Record<string, unknown> | null);
+      try {
+        sessionStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(mappedSettings));
+      } catch {}
+
+      if (!session) {
+        try {
+          sessionStorage.removeItem(PROFILE_CACHE_KEY);
+        } catch {}
+        setState((s) => ({
+          ...s,
+          currentUser: null,
+          authLoading: false,
+          siteSettings: mappedSettings,
+          chatEnabled: mappedSettings.chatEnabled ?? true,
+        }));
+        return;
+      }
+
+      const cachedRaw = sessionStorage.getItem(PROFILE_CACHE_KEY);
+      if (cachedRaw) {
+        try {
+          const cachedProfile = JSON.parse(cachedRaw) as Profile;
+          if (cachedProfile.id === session.user.id) {
+            setState((s) => ({ ...s, currentUser: cachedProfile }));
+          }
+        } catch {}
+      }
+
+      const { data: profileRow } = await supabase.from("profiles").select(PROFILE_SELECT).eq("id", session.user.id).single();
+      const mappedProfile = profileRow ? mapProfile(profileRow as Record<string, unknown>) : null;
+      if (mappedProfile) {
+        try {
+          sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(mappedProfile));
+        } catch {}
+      }
+
+      setState((s) => ({
+        ...s,
+        currentUser: mappedProfile,
+        authLoading: false,
+        siteSettings: mappedSettings,
+        chatEnabled: mappedSettings.chatEnabled ?? true,
       }));
     } catch (err) {
-      console.error("fetchGlobalData failed:", err);
-      // Even on error, mark loading as done so the app doesn't hang
-      setState(s => ({ ...s, authLoading: false }));
-    } finally {
-      isFetching.current = false;
+      console.error("bootstrapAuthAndCritical failed:", err);
+      setState((s) => ({ ...s, authLoading: false }));
     }
-  }, []);
+  }, [mapProfile, mapSettings]);
 
   useEffect(() => {
-    // Explicitly call the first fetch to avoid infinite loading if onAuthStateChange misses the tick
-    fetchGlobalData(true);
+    currentUserIdRef.current = state.currentUser?.id ?? null;
+  }, [state.currentUser?.id]);
+
+  useEffect(() => {
+    void bootstrapAuthAndCritical().then(() => {
+      void fetchSecondaryData();
+    });
 
     const channel = supabase.channel("global_sync")
-      .on("postgres_changes", { event: "*", schema: "public" }, () => {
-        fetchGlobalData();
+      .on("postgres_changes", { event: "*", schema: "public", table: "site_settings" }, () => {
+        scheduleRefresh("settings", fetchSettings);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => {
+        scheduleRefresh("users", async () => {
+          const { data: users } = await supabase.from("profiles").select(PROFILE_SELECT).order("credits", { ascending: false });
+          setState((s) => ({ ...s, users: (users || []).map((u) => mapProfile(u as Record<string, unknown>)) }));
+          if (currentUserIdRef.current) {
+            await fetchProfile(currentUserIdRef.current);
+          }
+        });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "matches" }, () => {
+        scheduleRefresh("matches", async () => {
+          const { data: matches } = await supabase.from("matches").select(MATCHES_SELECT).order("scheduled_at", { ascending: true });
+          setState((s) => ({ ...s, matches: (matches || []) as Match[] }));
+        });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "predictions" }, () => {
+        scheduleRefresh("predictions", async () => {
+          const { data: predictions } = await supabase.from("predictions").select(PREDICTIONS_SELECT);
+          setState((s) => ({ ...s, predictions: (predictions || []) as Prediction[] }));
+        });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "transactions" }, () => {
+        scheduleRefresh("transactions", async () => {
+          const { data: transactions } = await supabase.from("transactions").select(TRANSACTIONS_SELECT).order("created_at", { ascending: false });
+          setState((s) => ({ ...s, transactions: (transactions || []) as CreditTransaction[] }));
+        });
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "chat_messages" }, () => {
+        scheduleRefresh("chat", async () => {
+          const { data: chatMsgs } = await supabase
+            .from("chat_messages")
+            .select(CHAT_MESSAGES_SELECT)
+            .order("created_at", { ascending: true })
+            .limit(200);
+          setState((s) => ({
+            ...s,
+            chatMessages: (chatMsgs || []).map((m) => ({
+              ...(m as ChatMessage),
+              avatarUrl: (m as Record<string, unknown>).avatar_url as string | undefined,
+            })),
+          }));
+        });
       })
       .subscribe();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      // Re-fetch whenever auth changes (login/logout/token refresh)
-      fetchGlobalData();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!session) {
+        try {
+          sessionStorage.removeItem(PROFILE_CACHE_KEY);
+        } catch {}
+        setState((s) => ({ ...s, currentUser: null, authLoading: false }));
+        return;
+      }
+      await runDeduped("auth_profile", async () => {
+        await fetchProfile(session.user.id);
+        setState((s) => ({ ...s, authLoading: false }));
+      });
     });
 
     return () => {
       channel.unsubscribe();
       subscription.unsubscribe();
+      Object.values(refreshTimers.current).forEach((timer) => {
+        if (timer) clearTimeout(timer);
+      });
     };
-  }, [fetchGlobalData]);
+  }, [bootstrapAuthAndCritical, fetchSecondaryData, fetchProfile, fetchSettings, mapProfile, runDeduped, scheduleRefresh]);
 
   // ── Auth ─────────────────────────────────────────────────
   const login = async (username: string, password: string) => {
@@ -175,12 +340,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const { error: authErr } = await supabase.auth.signInWithPassword({ email: userRaw.email, password });
     if (authErr) return { success: false, error: "Şifre hatalı" };
 
-    await fetchGlobalData();
+    await runDeduped("post_login", async () => {
+      await bootstrapAuthAndCritical();
+      await fetchSecondaryData();
+    });
     return { success: true };
   };
 
   const logout = async () => {
     await supabase.auth.signOut();
+    try {
+      sessionStorage.removeItem(PROFILE_CACHE_KEY);
+    } catch {}
     setState(s => ({ ...s, currentUser: null }));
   };
 
@@ -364,10 +535,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (user.chatBlocked) return { success: false, error: "Sohbet gönderme yetkiniz kaldırılmış" };
     if (!text.trim()) return { success: false, error: "Mesaj boş olamaz" };
 
+    const cleanText = text.trim();
+    const tempId = `tmp-${Date.now()}`;
+    const optimistic: ChatMessage = {
+      id: tempId,
+      user_id: user.id,
+      username: user.username,
+      avatarUrl: user.avatarUrl,
+      text: cleanText,
+      created_at: new Date().toISOString(),
+      pinned: false,
+    };
+
+    setState((s) => ({ ...s, chatMessages: [...s.chatMessages, optimistic] }));
+
     const { error } = await supabase.from("chat_messages").insert({
-      user_id: user.id, username: user.username, avatar_url: user.avatarUrl, text: text.trim(),
+      user_id: user.id, username: user.username, avatar_url: user.avatarUrl, text: cleanText,
     });
-    if (error) return { success: false, error: "Mesaj gönderilemedi" };
+
+    if (error) {
+      setState((s) => ({ ...s, chatMessages: s.chatMessages.filter((m) => m.id !== tempId) }));
+      return { success: false, error: "Mesaj gönderilemedi" };
+    }
+
+    scheduleRefresh("chat_after_send", async () => {
+      const { data: chatMsgs } = await supabase
+        .from("chat_messages")
+        .select(CHAT_MESSAGES_SELECT)
+        .order("created_at", { ascending: true })
+        .limit(200);
+      setState((s) => ({
+        ...s,
+        chatMessages: (chatMsgs || []).map((m) => ({
+          ...(m as ChatMessage),
+          avatarUrl: (m as Record<string, unknown>).avatar_url as string | undefined,
+        })),
+      }));
+    });
+
     return { success: true };
   };
 

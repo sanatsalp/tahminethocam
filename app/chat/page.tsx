@@ -26,20 +26,14 @@ export default function ChatPage() {
     pinChatMessage, unpinChatMessage, users } = useApp();
   const [text, setText] = useState("");
   const [error, setError] = useState("");
-  const [tick, setTick] = useState(0);
+  const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // Poll for new messages (simulated real-time)
-  useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 2000);
-    return () => clearInterval(id);
-  }, []);
 
   // Auto scroll to bottom
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages.length, tick]);
+  }, [chatMessages.length]);
 
   if (!currentUser) return <AuthGuard><></></AuthGuard>;
 
@@ -50,10 +44,17 @@ export default function ChatPage() {
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
+    if (sending) return;
     setError("");
+    setSending(true);
     const result = await sendChatMessage(text.trim());
-    if (result.success) { setText(""); inputRef.current?.focus(); }
-    else setError(result.error || "Hata");
+    if (result.success) {
+      setText("");
+      inputRef.current?.focus();
+    } else {
+      setError(result.error || "Hata");
+    }
+    setSending(false);
   }
 
   function formatTime(iso: string) {
@@ -208,7 +209,7 @@ export default function ChatPage() {
             <input ref={inputRef} type="text" className="input" placeholder="Mesaj yaz..."
               value={text} onChange={e => setText(e.target.value)}
               maxLength={500} style={{ flex: 1 }} id="chat-input" />
-            <button type="submit" className="btn-primary" disabled={!text.trim()} id="chat-send"
+            <button type="submit" className="btn-primary" disabled={!text.trim() || sending} id="chat-send"
               style={{ padding: "0 1.25rem", flexShrink: 0 }}>
               <Send size={16} />
             </button>
