@@ -41,12 +41,10 @@ export default function ProfilePage() {
     if (!currentUser?.id) return;
     const userId = currentUser.id;
     const file = e.target.files?.[0];
-    if (!file || !currentUser) return;
+    if (!file) return;
     const reader = new FileReader();
-    reader.onloadend = () => {
-    setUserAvatar(currentUser.id, reader.result as string);
-      };
-reader.readAsDataURL(file);
+    reader.onloadend = () => { setUserAvatar(userId, reader.result as string); };
+    reader.readAsDataURL(file);
   }
 
   const statCards = [
