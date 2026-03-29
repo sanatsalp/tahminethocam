@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import {
   Profile, Match, Prediction, CreditTransaction, ChatMessage, SiteSettings, DEFAULT_SITE_SETTINGS
 } from "@/lib/mock-data";
@@ -64,30 +64,21 @@ function getInitialState(): AppState {
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(getInitialState);
+  const isFetching = useRef(false);
 
   const fetchGlobalData = useCallback(async (isInitial = false) => {
+    if (isFetching.current) return;
+    isFetching.current = true;
     try {
-      // Parallel fetching for performance
+      // Phase 1: Critical UI Unblock (Session & Settings)
       const [
-        { data: users },
-        { data: matches },
-        { data: predictions },
-        { data: transactions },
-        { data: chatMsgs },
         { data: settingsRow },
         { data: { session } },
       ] = await Promise.all([
-        supabase.from("profiles").select("*").order("credits", { ascending: false }),
-        supabase.from("matches").select("*").order("scheduled_at", { ascending: true }),
-        supabase.from("predictions").select("*"),
-        supabase.from("transactions").select("*").order("created_at", { ascending: false }),
-        supabase.from("chat_messages").select("*").order("created_at", { ascending: true }),
         supabase.from("site_settings").select("*").eq("id", 1).single(),
         supabase.auth.getSession(),
       ]);
 
-      const mappedUsers = (users || []).map(u => ({ ...u, avatarUrl: u.avatar_url, chatBlocked: u.chat_blocked })) as Profile[];
-      const mappedChats = (chatMsgs || []).map(m => ({ ...m, avatarUrl: m.avatar_url })) as ChatMessage[];
       const mappedSettings = settingsRow ? {
         title: settingsRow.title,
         subtitle: settingsRow.subtitle,
@@ -98,38 +89,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       let currentUser: Profile | null = null;
       if (session) {
-        currentUser = mappedUsers.find(u => u.id === session.user.id) || null;
-        if (!currentUser) {
-          // Fallback fetch if user wasn't in the initial paginated list or trigger delayed
-          const { data: userRaw } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
-          if (userRaw) {
-            currentUser = { ...userRaw, avatarUrl: userRaw.avatar_url, chatBlocked: userRaw.chat_blocked } as Profile;
-            mappedUsers.push(currentUser);
-          }
+        const { data: userRaw } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
+        if (userRaw) {
+          currentUser = { ...userRaw, avatarUrl: userRaw.avatar_url, chatBlocked: userRaw.chat_blocked } as Profile;
         }
       }
 
-      setState({
+      // Early flush: Unblock AuthGuard rendering instantly
+      setState(s => ({
+        ...s,
         currentUser,
-        authLoading: false, // done loading — safe to make routing decisions
+        authLoading: false,
+        siteSettings: mappedSettings,
+        chatEnabled: mappedSettings.chatEnabled ?? true,
+      }));
+
+      // Phase 2: Secondary Data (Background Loading)
+      const [
+        { data: users },
+        { data: matches },
+        { data: predictions },
+        { data: transactions },
+        { data: chatMsgs },
+      ] = await Promise.all([
+        supabase.from("profiles").select("*").order("credits", { ascending: false }),
+        supabase.from("matches").select("*").order("scheduled_at", { ascending: true }),
+        supabase.from("predictions").select("*"),
+        supabase.from("transactions").select("*").order("created_at", { ascending: false }),
+        supabase.from("chat_messages").select("*").order("created_at", { ascending: true }),
+      ]);
+
+      const mappedUsers = (users || []).map(u => ({ ...u, avatarUrl: u.avatar_url, chatBlocked: u.chat_blocked })) as Profile[];
+      const mappedChats = (chatMsgs || []).map(m => ({ ...m, avatarUrl: m.avatar_url })) as ChatMessage[];
+
+      setState(s => ({
+        ...s,
         users: mappedUsers,
         matches: matches || [],
         predictions: predictions || [],
         transactions: transactions || [],
         chatMessages: mappedChats,
-        chatEnabled: mappedSettings.chatEnabled ?? true,
-        siteSettings: mappedSettings,
-      });
-    } catch {
+      }));
+    } catch (err) {
+      console.error("fetchGlobalData failed:", err);
       // Even on error, mark loading as done so the app doesn't hang
       setState(s => ({ ...s, authLoading: false }));
+    } finally {
+      isFetching.current = false;
     }
   }, []);
 
   useEffect(() => {
-    // We don't call fetchGlobalData(true) manually here, because 
-    // supabase.auth.onAuthStateChange immediately fires "INITIAL_SESSION",
-    // and that prevents overlapping duplicate fetch calls.
+    // Explicitly call the first fetch to avoid infinite loading if onAuthStateChange misses the tick
+    fetchGlobalData(true);
 
     const channel = supabase.channel("global_sync")
       .on("postgres_changes", { event: "*", schema: "public" }, () => {
