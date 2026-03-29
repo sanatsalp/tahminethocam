@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRef } from "react";
 import Link from "next/link";
 import { useApp } from "@/contexts/AppContext";
-import { Wallet, History, CheckCircle, XCircle, Clock, Camera, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { Wallet, History, CheckCircle, XCircle, Clock, Camera, TrendingUp, TrendingDown } from "lucide-react";
+import AuthGuard from "@/components/AuthGuard";
+import { Profile, Prediction, CreditTransaction } from "@/lib/mock-data";
 
 function ResultBadge({ result }: { result: string }) {
   if (result === "won") return <span className="badge-won"><CheckCircle size={10} />Kazandı</span>;
@@ -18,17 +19,13 @@ function TxIcon({ type }: { type: string }) {
   return <TrendingUp size={14} color="#60a5fa" />;
 }
 
-export default function ProfilePage() {
-  const { currentUser, getUserPredictions, transactions, setUserAvatar } = useApp();
-  const router = useRouter();
+function ProfileInner({ user }: { user: Profile }) {
+  const { getUserPredictions, transactions, setUserAvatar } = useApp();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { if (!currentUser) router.replace("/login"); }, [currentUser, router]);
-  if (!currentUser) return null;
-
-  const myPredictions = getUserPredictions(currentUser.id);
+  const myPredictions = getUserPredictions(user.id);
   const myTxs = transactions
-    .filter(t => t.user_id === currentUser.id)
+    .filter(t => t.user_id === user.id)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   const wonCount = myPredictions.filter(p => p.result === "won").length;
@@ -38,12 +35,10 @@ export default function ProfilePage() {
   const totalWon = myTxs.filter(t => t.type === "win").reduce((s, t) => s + t.amount, 0);
 
   function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
-    if (!currentUser?.id) return;
-    const userId = currentUser.id;
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onloadend = () => { setUserAvatar(userId, reader.result as string); };
+    reader.onloadend = () => { setUserAvatar(user.id, reader.result as string); };
     reader.readAsDataURL(file);
   }
 
@@ -64,11 +59,9 @@ export default function ProfilePage() {
             <div style={{ width: "72px", height: "72px", borderRadius: "50%", overflow: "hidden",
               background: "rgba(16,185,129,0.12)", border: "2px solid rgba(16,185,129,0.3)",
               display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {currentUser.avatarUrl
-                ? <img src={currentUser.avatarUrl} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                : <span style={{ fontSize: "2rem", fontWeight: 800, color: "#34d399" }}>
-                    {currentUser.username[0].toUpperCase()}
-                  </span>}
+              {user.avatarUrl
+                ? <img src={user.avatarUrl} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                : <span style={{ fontSize: "2rem", fontWeight: 800, color: "#34d399" }}>{user.username[0].toUpperCase()}</span>}
             </div>
             <button onClick={() => fileRef.current?.click()}
               style={{
@@ -85,18 +78,16 @@ export default function ProfilePage() {
 
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", marginBottom: "4px" }}>
-              <h1 style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--text)" }}>{currentUser.username}</h1>
-              <span className={currentUser.role === "admin" ? "badge-admin" : "badge-user"}>
-                {currentUser.role === "admin" ? "🛡️ Admin" : "🎾 Kullanıcı"}
+              <h1 style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--text)" }}>{user.username}</h1>
+              <span className={user.role === "admin" ? "badge-admin" : "badge-user"}>
+                {user.role === "admin" ? "🛡️ Admin" : "🎾 Kullanıcı"}
               </span>
             </div>
-            <p style={{ color: "var(--text-muted)", fontSize: "0.82rem", marginBottom: "1rem" }}>{currentUser.email}</p>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.82rem", marginBottom: "1rem" }}>{user.email}</p>
             <div className="flex items-center justify-center sm:justify-start gap-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-2 w-fit mx-auto sm:mx-0">
               <Wallet size={15} color="#34d399" />
               <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Bakiye</span>
-              <span style={{ color: "#34d399", fontWeight: 700, fontSize: "1rem" }}>
-                {currentUser.credits.toLocaleString("tr-TR")}
-              </span>
+              <span style={{ color: "#34d399", fontWeight: 700, fontSize: "1rem" }}>{user.credits.toLocaleString("tr-TR")}</span>
               <span style={{ color: "var(--text-subtle)", fontSize: "0.8rem" }}>kredi</span>
             </div>
           </div>
@@ -187,5 +178,14 @@ export default function ProfilePage() {
         ))}
       </div>
     </div>
+  );
+}
+
+export default function ProfilePage() {
+  const { currentUser } = useApp();
+  return (
+    <AuthGuard>
+      {currentUser && <ProfileInner user={currentUser} />}
+    </AuthGuard>
   );
 }

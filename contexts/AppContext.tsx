@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 
 interface AppState {
   currentUser: Profile | null;
+  authLoading: boolean; // true until first auth+data check completes
   users: Profile[];
   matches: Match[];
   predictions: Prediction[];
@@ -50,6 +51,7 @@ const AppContext = createContext<AppContextType | null>(null);
 function getInitialState(): AppState {
   return {
     currentUser: null,
+    authLoading: true, // start as loading until we know auth state
     users: [],
     matches: [],
     predictions: [],
@@ -63,57 +65,70 @@ function getInitialState(): AppState {
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(getInitialState);
 
-  const fetchGlobalData = useCallback(async () => {
-    // Parallel fetching for performance
-    const [ { data: users }, { data: matches }, { data: predictions }, { data: transactions }, { data: chatMsgs }, { data: settingsRow } ] = await Promise.all([
-      supabase.from("profiles").select("*").order("credits", { ascending: false }),
-      supabase.from("matches").select("*").order("scheduled_at", { ascending: true }),
-      supabase.from("predictions").select("*"),
-      supabase.from("transactions").select("*").order("created_at", { ascending: false }),
-      supabase.from("chat_messages").select("*").order("created_at", { ascending: true }),
-      supabase.from("site_settings").select("*").eq("id", 1).single(),
-    ]);
+  const fetchGlobalData = useCallback(async (isInitial = false) => {
+    try {
+      // Parallel fetching for performance
+      const [
+        { data: users },
+        { data: matches },
+        { data: predictions },
+        { data: transactions },
+        { data: chatMsgs },
+        { data: settingsRow },
+        { data: { session } },
+      ] = await Promise.all([
+        supabase.from("profiles").select("*").order("credits", { ascending: false }),
+        supabase.from("matches").select("*").order("scheduled_at", { ascending: true }),
+        supabase.from("predictions").select("*"),
+        supabase.from("transactions").select("*").order("created_at", { ascending: false }),
+        supabase.from("chat_messages").select("*").order("created_at", { ascending: true }),
+        supabase.from("site_settings").select("*").eq("id", 1).single(),
+        supabase.auth.getSession(),
+      ]);
 
-    const mappedUsers = (users || []).map(u => ({ ...u, avatarUrl: u.avatar_url, chatBlocked: u.chat_blocked })) as Profile[];
-    const mappedChats = (chatMsgs || []).map(m => ({ ...m, avatarUrl: m.avatar_url })) as ChatMessage[];
-    const mappedSettings = settingsRow ? {
-      title: settingsRow.title,
-      subtitle: settingsRow.subtitle,
-      logoEmoji: settingsRow.logo_emoji,
-      customLogoUrl: settingsRow.custom_logo_url,
-      chatEnabled: settingsRow.chat_enabled !== false
-    } : DEFAULT_SITE_SETTINGS;
+      const mappedUsers = (users || []).map(u => ({ ...u, avatarUrl: u.avatar_url, chatBlocked: u.chat_blocked })) as Profile[];
+      const mappedChats = (chatMsgs || []).map(m => ({ ...m, avatarUrl: m.avatar_url })) as ChatMessage[];
+      const mappedSettings = settingsRow ? {
+        title: settingsRow.title,
+        subtitle: settingsRow.subtitle,
+        logoEmoji: settingsRow.logo_emoji,
+        customLogoUrl: settingsRow.custom_logo_url,
+        chatEnabled: settingsRow.chat_enabled !== false,
+      } : DEFAULT_SITE_SETTINGS;
 
-    // Detect session
-    const { data: { session } } = await supabase.auth.getSession();
-    let currentUser = null;
-    if (session) {
-      currentUser = mappedUsers.find(u => u.id === session.user.id) || null;
+      let currentUser: Profile | null = null;
+      if (session) {
+        currentUser = mappedUsers.find(u => u.id === session.user.id) || null;
+      }
+
+      setState({
+        currentUser,
+        authLoading: false, // done loading — safe to make routing decisions
+        users: mappedUsers,
+        matches: matches || [],
+        predictions: predictions || [],
+        transactions: transactions || [],
+        chatMessages: mappedChats,
+        chatEnabled: mappedSettings.chatEnabled ?? true,
+        siteSettings: mappedSettings,
+      });
+    } catch {
+      // Even on error, mark loading as done so the app doesn't hang
+      setState(s => ({ ...s, authLoading: false }));
     }
-
-    setState({
-      currentUser,
-      users: mappedUsers,
-      matches: matches || [],
-      predictions: predictions || [],
-      transactions: transactions || [],
-      chatMessages: mappedChats,
-      chatEnabled: mappedSettings.chatEnabled ?? true,
-      siteSettings: mappedSettings,
-    });
   }, []);
 
   useEffect(() => {
-    fetchGlobalData();
+    fetchGlobalData(true);
 
-    // Subscribe to realtime changes on all tables. In production we might map individually.
     const channel = supabase.channel("global_sync")
       .on("postgres_changes", { event: "*", schema: "public" }, () => {
-        fetchGlobalData(); // Refetch all state efficiently
+        fetchGlobalData();
       })
       .subscribe();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      // Re-fetch whenever auth changes (login/logout/token refresh)
       fetchGlobalData();
     });
 
@@ -125,17 +140,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ── Auth ─────────────────────────────────────────────────
   const login = async (username: string, password: string) => {
-    // Find the email from the username in the DB since Supabase uses email/password
-    const { data: userRaw, error: userErr } = await supabase.from("profiles").select("email, role").eq("username", username).single();
-    if (!userRaw || userErr) return { success: false, error: "Kullanıcı adı hatalı veya bulunamadı" };
-    
-    // Check local roles before logging in completely
+    const { data: userRaw, error: userErr } = await supabase
+      .from("profiles")
+      .select("email, role")
+      .eq("username", username)
+      .single();
+
+    if (!userRaw || userErr) return { success: false, error: "Kullanıcı adı bulunamadı" };
     if (userRaw.role === "pending") return { success: false, error: "Hesabınız henüz onaylanmamış. Admin onayını bekleyin." };
-    if (userRaw.role === "blocked") return { success: false, error: "Hesabınız engellenmiştir. Lütfen yönetici ile iletişime geçin." };
+    if (userRaw.role === "blocked") return { success: false, error: "Hesabınız engellenmiştir. Yönetici ile iletişime geçin." };
 
     const { error: authErr } = await supabase.auth.signInWithPassword({ email: userRaw.email, password });
     if (authErr) return { success: false, error: "Şifre hatalı" };
-    
+
     await fetchGlobalData();
     return { success: true };
   };
@@ -146,29 +163,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const register = async (username: string, email: string, password: string) => {
-    if (!/^[a-z0-9_]+$/.test(username)) return { success: false, error: "Kullanıcı adı sadece küçük harf, rakam ve alt çizgi içerebilir" };
-    
-    const { data: existingUser } = await supabase.from("profiles").select("id").or(`username.eq.${username},email.eq.${email}`).limit(1);
-    if (existingUser && existingUser.length > 0) return { success: false, error: "Bu kullanıcı adı veya e-posta zaten kullanımda" };
-    
+    if (!/^[a-z0-9_]+$/.test(username))
+      return { success: false, error: "Kullanıcı adı sadece küçük harf, rakam ve alt çizgi içerebilir" };
+
+    const { data: existing } = await supabase
+      .from("profiles")
+      .select("id")
+      .or(`username.eq.${username},email.eq.${email}`)
+      .limit(1);
+
+    if (existing && existing.length > 0)
+      return { success: false, error: "Bu kullanıcı adı veya e-posta zaten kullanımda" };
+
     const { error } = await supabase.auth.signUp({ email, password, options: { data: { username } } });
     if (error) return { success: false, error: error.message };
-    
-    await fetchGlobalData();
+
     return { success: true };
   };
 
   // ── Profile ───────────────────────────────────────────────
   const setUserAvatar = async (userId: string, dataUrl: string) => {
     await supabase.from("profiles").update({ avatar_url: dataUrl }).eq("id", userId);
+    setState(s => ({
+      ...s,
+      users: s.users.map(u => u.id === userId ? { ...u, avatarUrl: dataUrl } : u),
+      currentUser: s.currentUser?.id === userId ? { ...s.currentUser, avatarUrl: dataUrl } : s.currentUser,
+    }));
   };
 
   // ── Predictions ───────────────────────────────────────────
   const placePrediction = async (matchId: string, choice: "A" | "B", amount: number) => {
     if (!state.currentUser) return { success: false, error: "Giriş yapmanız gerekiyor" };
-    const user = state.users.find(u => u.id === state.currentUser!.id)!;
+    const user = state.users.find(u => u.id === state.currentUser!.id);
+    if (!user) return { success: false, error: "Kullanıcı bulunamadı" };
     if (user.credits < amount) return { success: false, error: "Yetersiz kredi" };
-    
+
     const match = state.matches.find(m => m.id === matchId);
     if (!match || match.status !== "open") return { success: false, error: "Bu maça tahmin yapılamaz" };
     if (state.predictions.find(p => p.user_id === user.id && p.match_id === matchId))
@@ -178,22 +207,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const potentialWin = Math.round(amount * odds);
 
     const { error } = await supabase.from("predictions").insert({
-      user_id: user.id, match_id: matchId, choice, amount, potential_win: potentialWin, result: "pending"
+      user_id: user.id, match_id: matchId, choice, amount, potential_win: potentialWin, result: "pending",
     });
     if (error) return { success: false, error: "Bir sistem hatası oluştu." };
 
     await supabase.from("transactions").insert({
-      user_id: user.id, amount: -amount, type: "prediction", description: `Tahmin - ${match.player_a} vs ${match.player_b}`
+      user_id: user.id, amount: -amount, type: "prediction",
+      description: `Tahmin - ${match.player_a} vs ${match.player_b}`,
     });
     await supabase.from("profiles").update({ credits: user.credits - amount }).eq("id", user.id);
-    
+
     return { success: true };
   };
 
   // ── Admin - Users ─────────────────────────────────────────
   const approveUser = async (userId: string) => {
     await supabase.from("profiles").update({ role: "user", credits: 1000 }).eq("id", userId);
-    await supabase.from("transactions").insert({ user_id: userId, amount: 1000, type: "initial", description: "Başlangıç kredisi - Admin onayı" });
+    await supabase.from("transactions").insert({
+      user_id: userId, amount: 1000, type: "initial", description: "Başlangıç kredisi - Admin onayı",
+    });
   };
 
   const rejectUser = async (userId: string) => {
@@ -202,7 +234,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const deleteUser = async (userId: string) => {
     if (userId === state.currentUser?.id) return;
-    await supabase.from("profiles").delete().eq("id", userId); // Will cascade to predictions/chat
+    await supabase.from("profiles").delete().eq("id", userId);
   };
 
   const blockUser = async (userId: string) => {
@@ -217,7 +249,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const user = state.users.find(u => u.id === userId);
     if (!user) return;
     await supabase.from("profiles").update({ credits: user.credits + amount }).eq("id", userId);
-    await supabase.from("transactions").insert({ user_id: userId, amount, type: "admin_grant", description: `Admin kredi ekledi: +${amount}` });
+    await supabase.from("transactions").insert({
+      user_id: userId, amount, type: "admin_grant", description: `Admin kredi ekledi: +${amount}`,
+    });
   };
 
   const removeCredits = async (userId: string, amount: number) => {
@@ -225,7 +259,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
     const deduct = Math.min(amount, user.credits);
     await supabase.from("profiles").update({ credits: Math.max(0, user.credits - amount) }).eq("id", userId);
-    await supabase.from("transactions").insert({ user_id: userId, amount: -deduct, type: "admin_grant", description: `Admin kredi kesti: -${deduct}` });
+    await supabase.from("transactions").insert({
+      user_id: userId, amount: -deduct, type: "admin_grant", description: `Admin kredi kesti: -${deduct}`,
+    });
   };
 
   // ── Admin - Matches ───────────────────────────────────────
@@ -237,10 +273,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const match = state.matches.find(m => m.id === matchId);
     if (!match) return;
     await supabase.from("matches").update({ status: "finished", winner }).eq("id", matchId);
-    
+
     const odds = winner === "A" ? match.odds_a : match.odds_b;
     const pendingPreds = state.predictions.filter(p => p.match_id === matchId && p.result === "pending");
-    
+
     for (const p of pendingPreds) {
       if (p.choice === winner) {
         const winAmount = Math.round(p.amount * odds);
@@ -248,7 +284,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const u = state.users.find(u => u.id === p.user_id);
         if (u) {
           await supabase.from("profiles").update({ credits: u.credits + winAmount }).eq("id", u.id);
-          await supabase.from("transactions").insert({ user_id: p.user_id, amount: winAmount, type: "win", description: `Kazanç - ${match.player_a} vs ${match.player_b}` });
+          await supabase.from("transactions").insert({
+            user_id: p.user_id, amount: winAmount, type: "win",
+            description: `Kazanç - ${match.player_a} vs ${match.player_b}`,
+          });
         }
       } else {
         await supabase.from("predictions").update({ result: "lost" }).eq("id", p.id);
@@ -286,7 +325,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateSiteSettings = async (settings: Partial<SiteSettings>) => {
-    const dbParams: any = {};
+    const dbParams: Record<string, unknown> = {};
     if (settings.title !== undefined) dbParams.title = settings.title;
     if (settings.subtitle !== undefined) dbParams.subtitle = settings.subtitle;
     if (settings.logoEmoji !== undefined) dbParams.logo_emoji = settings.logoEmoji;
@@ -304,7 +343,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!text.trim()) return { success: false, error: "Mesaj boş olamaz" };
 
     const { error } = await supabase.from("chat_messages").insert({
-      user_id: user.id, username: user.username, avatar_url: user.avatarUrl, text: text.trim()
+      user_id: user.id, username: user.username, avatar_url: user.avatarUrl, text: text.trim(),
     });
     if (error) return { success: false, error: "Mesaj gönderilemedi" };
     return { success: true };
@@ -312,8 +351,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ── Helpers ───────────────────────────────────────────────
   const getUserById = useCallback((id: string) => state.users.find(u => u.id === id), [state.users]);
+
   const getUserPredictions = useCallback((userId: string) =>
-    state.predictions.filter(p => p.user_id === userId)
+    state.predictions
+      .filter(p => p.user_id === userId)
       .map(p => ({ ...p, match: state.matches.find(m => m.id === p.match_id) }))
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
     [state.predictions, state.matches]);

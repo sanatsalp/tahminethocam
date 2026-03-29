@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { useApp } from "@/contexts/AppContext";
 import { Send, MessageSquareOff, Ban, Trash2, Pin } from "lucide-react";
+import AuthGuard from "@/components/AuthGuard";
 
 function Avatar({ username, avatarUrl, size = 32 }: { username: string; avatarUrl?: string; size?: number }) {
   if (avatarUrl) {
@@ -24,14 +24,11 @@ function Avatar({ username, avatarUrl, size = 32 }: { username: string; avatarUr
 export default function ChatPage() {
   const { currentUser, chatMessages, chatEnabled, sendChatMessage, deleteChatMessage,
     pinChatMessage, unpinChatMessage, users } = useApp();
-  const router = useRouter();
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [tick, setTick] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { if (!currentUser) router.replace("/login"); }, [currentUser, router]);
 
   // Poll for new messages (simulated real-time)
   useEffect(() => {
@@ -44,7 +41,7 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages.length, tick]);
 
-  if (!currentUser) return null;
+  if (!currentUser) return <AuthGuard><></></AuthGuard>;
 
   const isAdmin = currentUser.role === "admin";
   const currentUserData = users.find(u => u.id === currentUser.id);

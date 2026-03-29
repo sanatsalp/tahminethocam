@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useApp } from "@/contexts/AppContext";
 import { Calendar, Trophy, TrendingUp, Zap } from "lucide-react";
 import { Match } from "@/lib/mock-data";
+import AuthGuard from "@/components/AuthGuard";
 
 function StatusBadge({ status }: { status: string }) {
   if (status === "open")     return <span className="badge-open">🟢 Açık</span>;
@@ -101,16 +100,13 @@ function MatchCard({ match }: { match: Match }) {
 
 export default function DashboardPage() {
   const { currentUser, matches } = useApp();
-  const router = useRouter();
-
-  useEffect(() => { if (!currentUser) router.replace("/login"); }, [currentUser, router]);
-  if (!currentUser) return null;
 
   const openMatches     = matches.filter(m => m.status === "open");
   const closedMatches   = matches.filter(m => m.status === "closed");
   const finishedMatches = matches.filter(m => m.status === "finished");
 
   return (
+    <AuthGuard>
     <div className="animate-fade-in" style={{ maxWidth: "1100px", margin: "0 auto", padding: "1.75rem 1rem" }}>
       {/* Welcome Banner */}
       <div style={{
@@ -122,7 +118,7 @@ export default function DashboardPage() {
         <div style={{ position: "absolute", right: 0, top: 0, width: "200px", height: "100%",
           background: "radial-gradient(circle, rgba(16,185,129,0.08) 0%, transparent 70%)", pointerEvents: "none" }} />
         <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "4px", color: "var(--text)" }}>
-          Merhaba, <span style={{ color: "#34d399" }}>{currentUser.username}</span> 👋
+          Merhaba, <span style={{ color: "#34d399" }}>{currentUser!.username}</span> 👋
         </h1>
         <p style={{ color: "var(--text-muted)", fontSize: "0.82rem", marginBottom: "1rem" }}>
           Tahminlerini yap, sıralamada yüksel!
@@ -134,7 +130,7 @@ export default function DashboardPage() {
             <Zap size={15} color="#34d399" />
             <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Bakiyeniz</span>
             <span style={{ color: "#34d399", fontWeight: 700, fontSize: "1.1rem" }}>
-              {currentUser.credits.toLocaleString("tr-TR")}
+              {currentUser!.credits.toLocaleString("tr-TR")}
             </span>
             <span style={{ color: "var(--text-subtle)", fontSize: "0.8rem" }}>kredi</span>
           </div>
@@ -184,5 +180,6 @@ export default function DashboardPage() {
         </section>
       )}
     </div>
+    </AuthGuard>
   );
 }

@@ -1,22 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import Link from "next/link";
 import { useApp } from "@/contexts/AppContext";
 import { Shield, Users, Trophy, PlusCircle, CheckCircle, XCircle, Trash2, Ban, RotateCcw, Coins, MinusCircle, MessageSquare, MessageSquareOff, Settings } from "lucide-react";
 import { Profile, Match } from "@/lib/mock-data";
+import AuthGuard from "@/components/AuthGuard";
 
-function AdminGuard({ children }: { children: React.ReactNode }) {
-  const { currentUser } = useApp();
-  const router = useRouter();
-  useEffect(() => {
-    if (!currentUser) router.replace("/login");
-    else if (currentUser.role !== "admin") router.replace("/dashboard");
-  }, [currentUser, router]);
-  if (!currentUser || currentUser.role !== "admin") return null;
-  return <>{children}</>;
-}
 
 function Avatar({ user, size = 36 }: { user: Profile; size?: number }) {
   const colors = ["#10b981","#3b82f6","#f59e0b","#8b5cf6","#ef4444"];
@@ -336,7 +326,7 @@ export default function AdminPage() {
   ];
 
   return (
-    <AdminGuard>
+    <AuthGuard requireAdmin>
       <div className="animate-fade-in" style={{ maxWidth: "900px", margin: "0 auto", padding: "2rem 1rem" }}>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.75rem" }}>
@@ -442,6 +432,6 @@ export default function AdminPage() {
 
         {tab === "chat" && <ChatModPanel />}
       </div>
-    </AdminGuard>
+    </AuthGuard>
   );
 }

@@ -1,25 +1,22 @@
 "use client";
 
-import { use, useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { use, useState } from "react";
 import Link from "next/link";
 import { useApp } from "@/contexts/AppContext";
 import { Trophy, Calendar, ArrowLeft, Zap, CheckCircle, XCircle, Clock } from "lucide-react";
+import AuthGuard from "@/components/AuthGuard";
 
 export default function MatchDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const { currentUser, matches, predictions, placePrediction } = useApp();
-  const router = useRouter();
   const [selected, setSelected] = useState<"A" | "B" | null>(null);
   const [amount, setAmount] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => { if (!currentUser) router.replace("/login"); }, [currentUser, router]);
-
   const match = matches.find(m => m.id === params.id);
-  if (!match || !currentUser) return null;
+  if (!match || !currentUser) return <AuthGuard><></></AuthGuard>;
 
   const myPred = predictions.find(p => p.match_id === params.id && p.user_id === currentUser.id);
   const odds = selected === "A" ? match.odds_a : selected === "B" ? match.odds_b : null;

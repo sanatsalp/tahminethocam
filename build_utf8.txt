@@ -1,0 +1,20 @@
+
+> tahminethocam@0.1.0 build
+> next build
+
+▲ Next.js 16.2.1 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 2.7s
+  Running TypeScript ...
+  Finished TypeScript in 3.1s ...
+  Collecting page data using 15 workers ...
+  Generating static pages using 15 workers (0/13) ...
+Error occurred prerendering page "/dashboard". Read more: https://nextjs.org/docs/messages/prerender-error
+TypeError: Cannot read properties of null (reading 'username')
+    at <unknown> (C:\Users\Alp\Desktop\odtutt\tahminethocam\.next\server\chunks\ssr\_0dz3em2._.js:1:6552) {
+  digest: '2181370782'
+}
+Export encountered an error on /dashboard/page: /dashboard, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
