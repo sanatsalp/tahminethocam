@@ -38,10 +38,12 @@ export default function ProfilePage() {
   const totalWon = myTxs.filter(t => t.type === "win").reduce((s, t) => s + t.amount, 0);
 
   function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!currentUser?.id) return;
+    const userId = currentUser.id;
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onloadend = () => { setUserAvatar(currentUser.id, reader.result as string); };
+    reader.onloadend = () => { setUserAvatar(userId, reader.result as string); };
     reader.readAsDataURL(file);
   }
 
