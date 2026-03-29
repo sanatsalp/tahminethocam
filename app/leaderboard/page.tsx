@@ -112,7 +112,7 @@ export default function LeaderboardPage() {
                 <div style={{ marginBottom: "8px" }}>
                   <UserAvatar user={user} />
                 </div>
-                <p style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text)", marginBottom: "2px" }}>
+                <p className="text-[0.78rem] font-semibold text-[color:var(--text)] mb-0.5 truncate max-w-[70px] sm:max-w-full mx-auto">
                   {user.username}
                 </p>
                 <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: "6px" }}>

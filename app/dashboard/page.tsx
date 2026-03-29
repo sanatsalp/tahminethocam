@@ -154,7 +154,7 @@ export default function DashboardPage() {
             <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#34d399" }} className="animate-pulse" />
             <h2 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text)" }}>Açık Maçlar</h2>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "14px" }}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {openMatches.map(m => <MatchCard key={m.id} match={m} />)}
           </div>
         </section>
@@ -166,7 +166,7 @@ export default function DashboardPage() {
             <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#fbbf24" }} />
             <h2 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text)" }}>Kapalı Maçlar</h2>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "14px" }}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {closedMatches.map(m => <MatchCard key={m.id} match={m} />)}
           </div>
         </section>
@@ -178,7 +178,7 @@ export default function DashboardPage() {
             <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "var(--text-subtle)" }} />
             <h2 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-muted)" }}>Biten Maçlar</h2>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "14px" }}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {finishedMatches.map(m => <MatchCard key={m.id} match={m} />)}
           </div>
         </section>

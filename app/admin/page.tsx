@@ -365,7 +365,7 @@ export default function AdminPage() {
         </div>
 
         {/* Stat cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", marginBottom: "1.25rem" }}>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
           {[
             { icon: <Users size={18} color="#60a5fa" />, label: "Toplam Kullanıcı", value: allUsers.length, color: "#60a5fa" },
             { icon: <Shield size={18} color="#fb923c" />, label: "Onay Bekleyen", value: pendingUsers.length, color: "#fb923c" },

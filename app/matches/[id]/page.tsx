@@ -103,7 +103,7 @@ export default function MatchDetailPage(props: { params: Promise<{ id: string }>
           {match.title}
         </h1>
 
-        <div style={{ display: "flex", alignItems: "stretch", gap: "16px", marginBottom: "1.5rem" }}>
+        <div className="flex flex-col md:flex-row items-stretch gap-4 mb-6">
           <PlayerCard side="A" />
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "8px" }}>
             <div style={{ width: "36px", height: "36px", borderRadius: "50%",

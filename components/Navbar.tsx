@@ -75,7 +75,7 @@ export default function Navbar() {
           </Link>
 
           {/* Desktop Nav */}
-          <div style={{ display: "flex", alignItems: "center", gap: "2px" }} className="hidden md:flex">
+          <div style={{ alignItems: "center", gap: "2px" }} className="hidden md:flex">
             {navLinks.map(link => (
               <Link key={link.href} href={link.href}
                 style={{
@@ -129,7 +129,7 @@ export default function Navbar() {
             {/* Logout (desktop) */}
             <button onClick={handleLogout} className="hidden sm:flex"
               style={{ background: "none", border: "none", color: "var(--text-subtle)", cursor: "pointer",
-                padding: "6px", borderRadius: "8px", display: "flex", alignItems: "center", transition: "color 0.2s" }}
+                padding: "6px", borderRadius: "8px", alignItems: "center", transition: "color 0.2s" }}
               title="Çıkış Yap"
             >
               <LogOut size={15} />
@@ -137,7 +137,7 @@ export default function Navbar() {
 
             {/* Mobile burger */}
             <button className="md:hidden" onClick={() => setMenuOpen(!menuOpen)}
-              style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: "4px" }}>
+              style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: "4px", display: "flex", alignItems: "center", justifyContent: "center" }}>
               {menuOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
           </div>
@@ -147,8 +147,10 @@ export default function Navbar() {
       {/* Mobile Menu */}
       {menuOpen && (
         <div style={{
-          borderTop: "1px solid var(--border)", background: "var(--surface)",
-          padding: "12px 16px 16px",
+          position: "absolute", top: "60px", left: 0, width: "100%",
+          borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)",
+          background: "var(--surface)", padding: "12px 16px 16px",
+          boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.2)", zIndex: 40,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px",
             paddingBottom: "12px", borderBottom: "1px solid var(--border)" }}>

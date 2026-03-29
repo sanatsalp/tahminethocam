@@ -58,7 +58,7 @@ export default function ProfilePage() {
     <div className="animate-fade-in" style={{ maxWidth: "720px", margin: "0 auto", padding: "2rem 1rem" }}>
       {/* Profile Card */}
       <div className="card" style={{ padding: "1.5rem", marginBottom: "1.25rem" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: "1.25rem" }}>
+        <div className="flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-5">
           {/* Avatar */}
           <div style={{ position: "relative", flexShrink: 0 }}>
             <div style={{ width: "72px", height: "72px", borderRadius: "50%", overflow: "hidden",
@@ -91,9 +91,7 @@ export default function ProfilePage() {
               </span>
             </div>
             <p style={{ color: "var(--text-muted)", fontSize: "0.82rem", marginBottom: "1rem" }}>{currentUser.email}</p>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px",
-              background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.18)",
-              borderRadius: "10px", padding: "8px 14px", width: "fit-content" }}>
+            <div className="flex items-center justify-center sm:justify-start gap-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-2 w-fit mx-auto sm:mx-0">
               <Wallet size={15} color="#34d399" />
               <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Bakiye</span>
               <span style={{ color: "#34d399", fontWeight: 700, fontSize: "1rem" }}>
@@ -104,7 +102,7 @@ export default function ProfilePage() {
           </div>
 
           {/* Total won */}
-          <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div className="text-center sm:text-right mt-2 sm:mt-0 flex-shrink-0 w-full sm:w-auto">
             <p style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Toplam Kazanç</p>
             <p style={{ fontSize: "1.1rem", fontWeight: 700, color: "#34d399" }}>+{totalWon.toLocaleString("tr-TR")}</p>
           </div>
@@ -112,7 +110,7 @@ export default function ProfilePage() {
       </div>
 
       {/* Stats Row */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "10px", marginBottom: "1.25rem" }}>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         {statCards.map(s => (
           <div key={s.label} className="card" style={{ padding: "1rem", textAlign: "center" }}>
             <p style={{ fontSize: "1.5rem", fontWeight: 700, color: s.color }}>{s.value}</p>
