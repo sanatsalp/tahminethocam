@@ -99,6 +99,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let currentUser: Profile | null = null;
       if (session) {
         currentUser = mappedUsers.find(u => u.id === session.user.id) || null;
+        if (!currentUser) {
+          // Fallback fetch if user wasn't in the initial paginated list or trigger delayed
+          const { data: userRaw } = await supabase.from("profiles").select("*").eq("id", session.user.id).single();
+          if (userRaw) {
+            currentUser = { ...userRaw, avatarUrl: userRaw.avatar_url, chatBlocked: userRaw.chat_blocked } as Profile;
+            mappedUsers.push(currentUser);
+          }
+        }
       }
 
       setState({
@@ -119,7 +127,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    fetchGlobalData(true);
+    // We don't call fetchGlobalData(true) manually here, because 
+    // supabase.auth.onAuthStateChange immediately fires "INITIAL_SESSION",
+    // and that prevents overlapping duplicate fetch calls.
 
     const channel = supabase.channel("global_sync")
       .on("postgres_changes", { event: "*", schema: "public" }, () => {
