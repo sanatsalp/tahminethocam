@@ -5,6 +5,7 @@ import { useApp } from "@/contexts/AppContext";
 import { Calendar, Trophy, TrendingUp, Zap } from "lucide-react";
 import { Match } from "@/lib/mock-data";
 import AuthGuard from "@/components/AuthGuard";
+import { useDashboardData } from "@/hooks/useDashboardData";
 
 function StatusBadge({ status }: { status: string }) {
   if (status === "open")     return <span className="badge-open">🟢 Açık</span>;
@@ -98,12 +99,25 @@ function MatchCard({ match }: { match: Match }) {
   );
 }
 
-function DashboardInner({ currentUser }: { currentUser: NonNullable<ReturnType<typeof useApp>["currentUser"]> }) {
-  const { matches } = useApp();
+function MatchCardSkeleton() {
+  return (
+    <div className="card" style={{ padding: "1.25rem" }}>
+      <div style={{ height: "12px", width: "45%", marginBottom: "12px", borderRadius: "8px", background: "var(--surface-3)" }} />
+      <div style={{ height: "80px", borderRadius: "10px", marginBottom: "12px", background: "var(--surface-3)" }} />
+      <div style={{ height: "10px", width: "65%", borderRadius: "8px", background: "var(--surface-3)" }} />
+    </div>
+  );
+}
 
-  const openMatches     = matches.filter(m => m.status === "open");
-  const closedMatches   = matches.filter(m => m.status === "closed");
-  const finishedMatches = matches.filter(m => m.status === "finished");
+function DashboardInner({ currentUser }: { currentUser: NonNullable<ReturnType<typeof useApp>["currentUser"]> }) {
+  const {
+    openMatches,
+    closedMatches,
+    finishedMatches,
+    openMatchesLoading,
+    activeMatchCount,
+    activeMatchCountLoading,
+  } = useDashboardData();
 
   return (
     <div className="animate-fade-in" style={{ maxWidth: "1100px", margin: "0 auto", padding: "1.75rem 1rem" }}>
@@ -137,23 +151,39 @@ function DashboardInner({ currentUser }: { currentUser: NonNullable<ReturnType<t
             background: "var(--surface-3)", border: "1px solid var(--border)",
             borderRadius: "12px", padding: "8px 16px" }}>
             <TrendingUp size={15} color="var(--text-muted)" />
-            <span style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>{openMatches.length} aktif maç</span>
+            <span style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
+              {activeMatchCountLoading ? "Loading active matches..." : `${activeMatchCount ?? openMatches.length} aktif maç`}
+            </span>
           </div>
         </div>
       </div>
 
       {/* Open Matches */}
-      {openMatches.length > 0 && (
-        <section style={{ marginBottom: "2rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "1rem" }}>
-            <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#34d399" }} className="animate-pulse" />
-            <h2 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text)" }}>Açık Maçlar</h2>
-          </div>
+      <section style={{ marginBottom: "2rem" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "1rem" }}>
+          <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#34d399" }} className="animate-pulse" />
+          <h2 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text)" }}>Açık Maçlar</h2>
+        </div>
+
+        {openMatchesLoading ? (
+          <>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.82rem", marginBottom: "10px" }}>Loading active matches...</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <MatchCardSkeleton />
+              <MatchCardSkeleton />
+              <MatchCardSkeleton />
+            </div>
+          </>
+        ) : openMatches.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {openMatches.map(m => <MatchCard key={m.id} match={m} />)}
+            {openMatches.map((m) => <MatchCard key={m.id} match={m} />)}
           </div>
-        </section>
-      )}
+        ) : (
+          <div className="card" style={{ padding: "1rem 1.25rem" }}>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.82rem" }}>Şu anda açık maç bulunmuyor.</p>
+          </div>
+        )}
+      </section>
 
       {closedMatches.length > 0 && (
         <section style={{ marginBottom: "2rem" }}>

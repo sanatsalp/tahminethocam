@@ -5,10 +5,15 @@ import {
   Profile, Match, Prediction, CreditTransaction, ChatMessage, SiteSettings, DEFAULT_SITE_SETTINGS
 } from "@/lib/mock-data";
 import { supabase } from "@/lib/supabase";
+import { getActiveMatchCount, getOpenMatches } from "@/lib/dashboard-data";
 
 interface AppState {
   currentUser: Profile | null;
   authLoading: boolean; // true until first auth+data check completes
+  activeMatchCount: number | null;
+  activeMatchCountLoading: boolean;
+  openMatches: Match[];
+  openMatchesLoading: boolean;
   users: Profile[];
   matches: Match[];
   predictions: Prediction[];
@@ -60,10 +65,15 @@ const PREDICTIONS_SELECT = "id,user_id,match_id,choice,amount,potential_win,resu
 const TRANSACTIONS_SELECT = "id,user_id,amount,type,description,created_at";
 const CHAT_MESSAGES_SELECT = "id,user_id,username,avatar_url,text,created_at,pinned";
 
+
 function getInitialState(): AppState {
   return {
     currentUser: null,
     authLoading: true, // start as loading until we know auth state
+    activeMatchCount: null,
+    activeMatchCountLoading: true,
+    openMatches: [],
+    openMatchesLoading: true,
     users: [],
     matches: [],
     predictions: [],
@@ -149,6 +159,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setState((s) => ({ ...s, currentUser: mapped }));
   }, [mapProfile]);
 
+  const fetchDashboardPrimary = useCallback(async () => {
+    setState((s) => ({
+      ...s,
+      activeMatchCountLoading: true,
+      openMatchesLoading: true,
+    }));
+
+    await runDeduped("dashboard_primary", async () => {
+      const [activeCount, openMatches] = await Promise.all([
+        getActiveMatchCount(),
+        getOpenMatches(),
+      ]);
+
+      setState((s) => ({
+        ...s,
+        activeMatchCount: activeCount,
+        activeMatchCountLoading: false,
+        openMatches,
+        openMatchesLoading: false,
+      }));
+    });
+  }, [runDeduped]);
+
   const fetchSecondaryData = useCallback(async () => {
     await runDeduped("secondary", async () => {
       const [
@@ -214,6 +247,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ...s,
           currentUser: null,
           authLoading: false,
+          activeMatchCount: null,
+          activeMatchCountLoading: false,
+          openMatches: [],
+          openMatchesLoading: false,
           siteSettings: mappedSettings,
           chatEnabled: mappedSettings.chatEnabled ?? true,
         }));
@@ -257,6 +294,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     void bootstrapAuthAndCritical().then(() => {
+      void fetchDashboardPrimary();
       void fetchSecondaryData();
     });
 
@@ -274,6 +312,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "matches" }, () => {
+        scheduleRefresh("matches_primary", fetchDashboardPrimary);
         scheduleRefresh("matches", async () => {
           const { data: matches } = await supabase.from("matches").select(MATCHES_SELECT).order("scheduled_at", { ascending: true });
           setState((s) => ({ ...s, matches: (matches || []) as Match[] }));
@@ -319,6 +358,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       await runDeduped("auth_profile", async () => {
         await fetchProfile(session.user.id);
+        void fetchDashboardPrimary();
         setState((s) => ({ ...s, authLoading: false }));
       });
     });
@@ -330,7 +370,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (timer) clearTimeout(timer);
       });
     };
-  }, [bootstrapAuthAndCritical, fetchSecondaryData, fetchProfile, fetchSettings, mapProfile, runDeduped, scheduleRefresh]);
+  }, [bootstrapAuthAndCritical, fetchDashboardPrimary, fetchSecondaryData, fetchProfile, fetchSettings, mapProfile, runDeduped, scheduleRefresh]);
 
   // ── Auth ─────────────────────────────────────────────────
   const login = async (username: string, password: string) => {
@@ -349,7 +389,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     await runDeduped("post_login", async () => {
       await bootstrapAuthAndCritical();
-      await fetchSecondaryData();
+      await fetchDashboardPrimary();
+      void fetchSecondaryData();
     });
     return { success: true };
   };
@@ -359,7 +400,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       sessionStorage.removeItem(PROFILE_CACHE_KEY);
     } catch {}
-    setState(s => ({ ...s, currentUser: null }));
+    setState(s => ({
+      ...s,
+      currentUser: null,
+      activeMatchCount: null,
+      activeMatchCountLoading: false,
+      openMatches: [],
+      openMatchesLoading: false,
+    }));
   };
 
   const register = async (username: string, email: string, password: string) => {
@@ -398,7 +446,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!user) return { success: false, error: "Kullanıcı bulunamadı" };
     if (user.credits < amount) return { success: false, error: "Yetersiz kredi" };
 
-    const match = state.matches.find(m => m.id === matchId);
+    const match = state.matches.find(m => m.id === matchId) ?? state.openMatches.find(m => m.id === matchId);
     if (!match || match.status !== "open") return { success: false, error: "Bu maça tahmin yapılamaz" };
     if (state.predictions.find(p => p.user_id === user.id && p.match_id === matchId))
       return { success: false, error: "Bu maça zaten tahmin yaptınız" };
