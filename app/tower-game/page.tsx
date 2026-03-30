@@ -74,7 +74,8 @@ export default function TowerGamePage() {
         setDailyRemaining(row.remaining_games ?? 0);
       } catch (e: any) {
         if (!alive) return;
-        setError(e?.message || "Bir hata oluştu");
+        console.error("Tower daily status fetch error:", e);
+        setError("Oyun durumu alınamadı. Lütfen sayfayı yenileyin.");
         setDailyRemaining(null);
       }
     }
@@ -134,7 +135,8 @@ export default function TowerGamePage() {
       setDailyRemaining(row.remaining_games ?? null);
       setGamesPlayed(row.games_played ?? 0);
     } catch (e: any) {
-      setError(e?.message || "Bir hata oluştu");
+      console.error("Tower start error:", e);
+      setError("Oyun başlatılamadı. Lütfen sayfayı yenileyip tekrar deneyin.");
     } finally {
       setBusy(false);
     }
@@ -218,7 +220,8 @@ export default function TowerGamePage() {
         setMultiplier(computeTowerMultiplier(currentLevel));
       }
     } catch (e: any) {
-      setError(e?.message || "Bir hata oluştu");
+      console.error("Tower pick error:", e);
+      setError("Oyun durumu güncellenemedi. Lütfen tekrar deneyin.");
     } finally {
       setBusy(false);
     }
@@ -239,7 +242,8 @@ export default function TowerGamePage() {
       await cashOut(picks);
       setStatus("cashed_out");
     } catch (e: any) {
-      setError(e?.message || "Bir hata oluştu");
+      console.error("Tower cashout error:", e);
+      setError("Coin çekme işlemi başarısız oldu. Lütfen tekrar deneyin.");
     } finally {
       setBusy(false);
     }
@@ -395,7 +399,7 @@ export default function TowerGamePage() {
               onClick={handleCashOut}
               style={{ flex: 1, minWidth: "160px" }}
             >
-              💰 Nakit Çek ({multiplier.toFixed(2)}x)
+              💰 Coin Çek ({multiplier.toFixed(2)}x)
             </button>
             <Link href="/dashboard" className="btn-secondary" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 1.25rem" }}>
               Tahminlere Dön
@@ -431,7 +435,7 @@ export default function TowerGamePage() {
 
           {status === "cashed_out" ? (
             <div className="card" style={{ padding: "14px" }}>
-              <p style={{ fontWeight: 800, color: "#34d399", marginBottom: "6px" }}>Nakit Çekildi!</p>
+              <p style={{ fontWeight: 800, color: "#34d399", marginBottom: "6px" }}>Coin Çekildi!</p>
               <p style={{ color: "var(--text-muted)", fontSize: "0.82rem" }}>
                 Kazanç: +{(lastPayout ?? 0).toLocaleString("tr-TR")} kredi · Seviye: {lastFinalLevel ?? 0}/{TOWER_GAME.MAX_LEVEL}
               </p>
