@@ -1,6 +1,7 @@
-"use client";
+ "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useApp } from "@/contexts/AppContext";
 import { Calendar, Trophy, TrendingUp, Zap } from "lucide-react";
 import { Match } from "@/lib/mock-data";
@@ -13,7 +14,7 @@ function StatusBadge({ status }: { status: string }) {
   return <span className="badge-finished">⚪ Bitti</span>;
 }
 
-function MatchCard({ match }: { match: Match }) {
+function MatchCard({ match, predictionsLoading }: { match: Match; predictionsLoading: boolean }) {
   const { predictions, currentUser } = useApp();
   const myPred = predictions.find(p => p.match_id === match.id && p.user_id === currentUser?.id);
 
@@ -86,7 +87,9 @@ function MatchCard({ match }: { match: Match }) {
             <Calendar size={11} />
             {new Date(match.scheduled_at).toLocaleDateString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
           </div>
-          {myPred
+          {predictionsLoading ? (
+            <span style={{ fontSize: "0.72rem", color: "var(--text-subtle)" }}>Yükleniyor...</span>
+          ) : myPred
             ? <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "#34d399",
                 background: "rgba(16,185,129,0.1)", border: "1px solid rgba(16,185,129,0.2)",
                 padding: "2px 8px", borderRadius: "20px" }}>✓ Tahmin yapıldı</span>
@@ -118,6 +121,25 @@ function DashboardInner({ currentUser }: { currentUser: NonNullable<ReturnType<t
     activeMatchCount,
     activeMatchCountLoading,
   } = useDashboardData();
+
+  const { siteSettings } = useApp();
+  const showTowerGame = Boolean(siteSettings.towerGameVisible);
+
+  const { ensureDashboardSecondary } = useApp();
+  const [secondaryLoading, setSecondaryLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    setSecondaryLoading(true);
+    void ensureDashboardSecondary()
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setSecondaryLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [ensureDashboardSecondary]);
 
   return (
     <div className="animate-fade-in" style={{ maxWidth: "1100px", margin: "0 auto", padding: "1.75rem 1rem" }}>
@@ -155,6 +177,17 @@ function DashboardInner({ currentUser }: { currentUser: NonNullable<ReturnType<t
               {activeMatchCountLoading ? "Loading active matches..." : `${activeMatchCount ?? openMatches.length} aktif maç`}
             </span>
           </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "8px",
+            background: "var(--surface-2)", border: "1px solid var(--border)",
+            borderRadius: "12px", padding: "8px 16px" }}>
+            <Trophy size={15} color="var(--text-muted)" />
+            {showTowerGame ? (
+              <Link href="/tower-game" style={{ textDecoration: "none", fontSize: "0.82rem", fontWeight: 600, color: "#34d399" }}>
+                Tower Game
+              </Link>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -176,7 +209,9 @@ function DashboardInner({ currentUser }: { currentUser: NonNullable<ReturnType<t
           </>
         ) : openMatches.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {openMatches.map((m) => <MatchCard key={m.id} match={m} />)}
+            {openMatches.map((m) => (
+              <MatchCard key={m.id} match={m} predictionsLoading={secondaryLoading} />
+            ))}
           </div>
         ) : (
           <div className="card" style={{ padding: "1rem 1.25rem" }}>
@@ -192,7 +227,9 @@ function DashboardInner({ currentUser }: { currentUser: NonNullable<ReturnType<t
             <h2 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text)" }}>Kapalı Maçlar</h2>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {closedMatches.map(m => <MatchCard key={m.id} match={m} />)}
+              {closedMatches.map(m => (
+                <MatchCard key={m.id} match={m} predictionsLoading={secondaryLoading} />
+              ))}
           </div>
         </section>
       )}
@@ -204,7 +241,9 @@ function DashboardInner({ currentUser }: { currentUser: NonNullable<ReturnType<t
             <h2 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-muted)" }}>Biten Maçlar</h2>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {finishedMatches.map(m => <MatchCard key={m.id} match={m} />)}
+              {finishedMatches.map(m => (
+                <MatchCard key={m.id} match={m} predictionsLoading={secondaryLoading} />
+              ))}
           </div>
         </section>
       )}

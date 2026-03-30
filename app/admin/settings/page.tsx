@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useApp } from "@/contexts/AppContext";
-import { ArrowLeft, Settings, Save, Upload, MessageSquare, MessageSquareOff, Palette } from "lucide-react";
+import { ArrowLeft, Settings, Save, Upload, MessageSquare, MessageSquareOff, Palette, Trophy, Eye, EyeOff, Wrench } from "lucide-react";
 
 export default function AdminSettingsPage() {
   const { currentUser, siteSettings, updateSiteSettings, chatEnabled, toggleChatEnabled } = useApp();
@@ -180,6 +180,150 @@ export default function AdminSettingsPage() {
               {chatEnabled ? <><MessageSquareOff size={14} />Kapat</> : <><MessageSquare size={14} />Aç</>}
             </button>
           </div>
+        </div>
+
+        {/* Tower Game settings */}
+        <div className="card" style={{ padding: "1.5rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "1rem" }}>
+            <Trophy size={16} color="#fbbf24" />
+            <h2 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text)" }}>Tower Game Ayarları</h2>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "12px", padding: "14px" }}>
+              <div>
+                <p style={{ fontWeight: 500, color: "var(--text)", fontSize: "0.88rem" }}>Tower Game Aktif</p>
+                <p style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  {form.towerGameEnabled ? "✅ Aktif" : "❌ Kapalı"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  const next = !form.towerGameEnabled;
+                  setForm((f) => ({ ...f, towerGameEnabled: next }));
+                  await updateSiteSettings({ towerGameEnabled: next });
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "8px 14px",
+                  borderRadius: "10px",
+                  fontWeight: 600,
+                  fontSize: "0.82rem",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  background: form.towerGameEnabled ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)",
+                  border: `1px solid ${form.towerGameEnabled ? "rgba(16,185,129,0.25)" : "rgba(239,68,68,0.25)"}`,
+                  color: form.towerGameEnabled ? "#34d399" : "#f87171",
+                }}
+              >
+                {form.towerGameEnabled ? "Kapat" : "Aç"}
+              </button>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "12px", padding: "14px" }}>
+              <div>
+                <p style={{ fontWeight: 500, color: "var(--text)", fontSize: "0.88rem" }}>Görünürlük</p>
+                <p style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  {form.towerGameVisible ? "👁️ Görünür" : "🙈 Gizli"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  const next = !form.towerGameVisible;
+                  setForm((f) => ({ ...f, towerGameVisible: next }));
+                  await updateSiteSettings({ towerGameVisible: next });
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "8px 14px",
+                  borderRadius: "10px",
+                  fontWeight: 600,
+                  fontSize: "0.82rem",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  background: form.towerGameVisible ? "rgba(16,185,129,0.1)" : "rgba(148,163,184,0.12)",
+                  border: `1px solid ${form.towerGameVisible ? "rgba(16,185,129,0.25)" : "rgba(148,163,184,0.25)"}`,
+                  color: form.towerGameVisible ? "#34d399" : "var(--text-muted)",
+                }}
+              >
+                {form.towerGameVisible ? <EyeOff size={14} /> : <Eye size={14} />}
+                {form.towerGameVisible ? "Gizle" : "Göster"}
+              </button>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "12px", padding: "14px" }}>
+              <div>
+                <p style={{ fontWeight: 500, color: "var(--text)", fontSize: "0.88rem" }}>Bakım Modu</p>
+                <p style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  {form.towerGameMaintenance ? "🛠️ Bakımda" : "✅ Aktif"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  const next = !form.towerGameMaintenance;
+                  setForm((f) => ({ ...f, towerGameMaintenance: next }));
+                  await updateSiteSettings({ towerGameMaintenance: next });
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "8px 14px",
+                  borderRadius: "10px",
+                  fontWeight: 600,
+                  fontSize: "0.82rem",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  background: form.towerGameMaintenance ? "rgba(249,115,22,0.12)" : "rgba(16,185,129,0.1)",
+                  border: `1px solid ${form.towerGameMaintenance ? "rgba(249,115,22,0.25)" : "rgba(16,185,129,0.25)"}`,
+                  color: form.towerGameMaintenance ? "#fb923c" : "#34d399",
+                }}
+              >
+                <Wrench size={14} />
+                {form.towerGameMaintenance ? "Kapat" : "Aç"}
+              </button>
+            </div>
+          </div>
+
+          <div style={{ height: 1, background: "var(--border)", margin: "16px 0" }} />
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+            <div>
+              <label style={{ display: "block", fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "6px" }}>
+                Maksimum Bahis (kredi)
+              </label>
+              <input
+                type="number"
+                className="input"
+                min={1}
+                value={form.towerGameMaxBetAmount ?? 50}
+                onChange={(e) => setForm((f) => ({ ...f, towerGameMaxBetAmount: Number(e.target.value) }))}
+              />
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "6px" }}>
+                Günlük Oyun Limiti
+              </label>
+              <input
+                type="number"
+                className="input"
+                min={1}
+                value={form.towerGameDailyPlayLimit ?? 3}
+                onChange={(e) => setForm((f) => ({ ...f, towerGameDailyPlayLimit: Number(e.target.value) }))}
+              />
+            </div>
+          </div>
+
+          <p style={{ marginTop: "10px", fontSize: "0.75rem", color: "var(--text-subtle)" }}>
+            Not: Tower Game, ana tahmin sistemini etkilemez. Kazançlar limitli çarpanla kısıtlanır.
+          </p>
         </div>
 
         {/* Save */}

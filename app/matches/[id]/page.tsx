@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useApp } from "@/contexts/AppContext";
 import { Trophy, Calendar, ArrowLeft, Zap, CheckCircle, XCircle, Clock } from "lucide-react";
@@ -8,15 +8,51 @@ import AuthGuard from "@/components/AuthGuard";
 
 export default function MatchDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
-  const { currentUser, matches, predictions, placePrediction } = useApp();
+  const { currentUser, matches, predictions, placePrediction, ensureMatchDetailData } = useApp();
   const [selected, setSelected] = useState<"A" | "B" | null>(null);
   const [amount, setAmount] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [matchLoading, setMatchLoading] = useState(true);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    let alive = true;
+    setMatchLoading(true);
+    void ensureMatchDetailData(params.id)
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setMatchLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [currentUser, params.id, ensureMatchDetailData]);
 
   const match = matches.find(m => m.id === params.id);
-  if (!match || !currentUser) return <AuthGuard><></></AuthGuard>;
+  if (!currentUser) return <AuthGuard><></></AuthGuard>;
+  if (!match && matchLoading) {
+    return (
+      <div className="animate-fade-in" style={{ maxWidth: "640px", margin: "0 auto", padding: "1.75rem 1rem" }}>
+        <div className="card" style={{ padding: "1.75rem" }}>
+          <div style={{ height: "14px", width: "60%", background: "var(--surface-3)", borderRadius: "8px", marginBottom: "12px" }} />
+          <div style={{ height: "22px", width: "85%", background: "var(--surface-3)", borderRadius: "8px", marginBottom: "24px" }} />
+          <div style={{ height: "140px", background: "var(--surface-3)", borderRadius: "14px" }} />
+          <div style={{ height: "12px", width: "40%", background: "var(--surface-3)", borderRadius: "8px", marginTop: "18px" }} />
+        </div>
+      </div>
+    );
+  }
+  if (!match) {
+    return (
+      <div className="animate-fade-in" style={{ maxWidth: "640px", margin: "0 auto", padding: "1.75rem 1rem" }}>
+        <div className="card" style={{ padding: "1.5rem", textAlign: "center" }}>
+          <p style={{ color: "var(--text-muted)" }}>Maç bulunamadı.</p>
+        </div>
+      </div>
+    );
+  }
 
   const myPred = predictions.find(p => p.match_id === params.id && p.user_id === currentUser.id);
   const odds = selected === "A" ? match.odds_a : selected === "B" ? match.odds_b : null;

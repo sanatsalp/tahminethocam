@@ -9,6 +9,12 @@ export interface SiteSettings {
   logoEmoji: string;
   customLogoUrl?: string;
   chatEnabled?: boolean;
+
+  towerGameEnabled?: boolean;
+  towerGameVisible?: boolean;
+  towerGameMaintenance?: boolean;
+  towerGameMaxBetAmount?: number;
+  towerGameDailyPlayLimit?: number;
 }
 
 export interface Profile {
@@ -75,4 +81,9 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   subtitle: "ODTÜ Tahmin Platformu",
   logoEmoji: "🎾",
   chatEnabled: true,
+  towerGameEnabled: true,
+  towerGameVisible: true,
+  towerGameMaintenance: false,
+  towerGameMaxBetAmount: 50,
+  towerGameDailyPlayLimit: 3,
 };

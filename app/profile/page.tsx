@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useApp } from "@/contexts/AppContext";
 import { Wallet, History, CheckCircle, XCircle, Clock, Camera, TrendingUp, TrendingDown } from "lucide-react";
@@ -182,10 +182,42 @@ function ProfileInner({ user }: { user: Profile }) {
 }
 
 export default function ProfilePage() {
-  const { currentUser } = useApp();
+  const { currentUser, ensureProfileData } = useApp();
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    let alive = true;
+    setLoading(true);
+    void ensureProfileData()
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [currentUser, ensureProfileData]);
+
   return (
     <AuthGuard>
-      {currentUser && <ProfileInner user={currentUser} />}
+      {currentUser && !loading ? (
+        <ProfileInner user={currentUser} />
+      ) : (
+        <div className="animate-fade-in" style={{ maxWidth: "720px", margin: "0 auto", padding: "2rem 1rem" }}>
+          <div className="card" style={{ padding: "1.5rem", marginBottom: "1.25rem" }}>
+            <div style={{ height: "72px", width: "72px", borderRadius: "50%", background: "var(--surface-3)", border: "1px solid var(--border)" }} />
+            <div style={{ height: "14px", width: "60%", background: "var(--surface-3)", borderRadius: "8px", marginTop: "12px" }} />
+            <div style={{ height: "12px", width: "40%", background: "var(--surface-3)", borderRadius: "8px", marginTop: "8px" }} />
+          </div>
+          <div className="card" style={{ padding: "1rem" }}>
+            <div style={{ height: "12px", width: "70%", background: "var(--surface-3)", borderRadius: "8px", marginBottom: "10px" }} />
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} style={{ height: "54px", background: "var(--surface-3)", borderRadius: "12px", border: "1px solid var(--border)", marginBottom: "10px", opacity: 0.65 }} />
+            ))}
+          </div>
+        </div>
+      )}
     </AuthGuard>
   );
 }

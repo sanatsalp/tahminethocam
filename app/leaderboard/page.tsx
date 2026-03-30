@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useApp } from "@/contexts/AppContext";
 import { Trophy, Crown, Medal } from "lucide-react";
 import { Profile } from "@/lib/mock-data";
@@ -28,8 +28,23 @@ function MedalIcon({ rank }: { rank: number }) {
 }
 
 export default function LeaderboardPage() {
-  const { currentUser, users } = useApp();
+  const { currentUser, users, ensureLeaderboardUsers } = useApp();
   const [period, setPeriod] = useState<"all" | "month" | "week">("all");
+  const [usersLoading, setUsersLoading] = useState(false);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    let alive = true;
+    setUsersLoading(true);
+    void ensureLeaderboardUsers()
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setUsersLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [currentUser, ensureLeaderboardUsers]);
 
   const ranked = [...users]
     .filter(u => u.role === "user" || u.role === "admin")
@@ -43,8 +58,17 @@ export default function LeaderboardPage() {
 
   const top3 = ranked.slice(0, 3);
   const podiumOrder = [top3[1], top3[0], top3[2]].filter(Boolean);
-  const podiumHeights = [160, 200, 140];
-  const podiumColors  = ["#94a3b8", "#fbbf24", "#b45309"];
+  // Sabit/proportional yükseklikler: #1 > #2 > #3
+  const podiumHeightsByRank: Record<number, string> = {
+    1: "clamp(150px, 18vh, 220px)",
+    2: "clamp(128px, 15.5vh, 190px)",
+    3: "clamp(104px, 13vh, 160px)",
+  };
+  const podiumColorsByRank: Record<number, string> = {
+    1: "#fbbf24",
+    2: "#94a3b8",
+    3: "#b45309",
+  };
 
   return (
     <AuthGuard>
@@ -100,7 +124,8 @@ export default function LeaderboardPage() {
           <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "center", gap: "12px", marginBottom: "2rem" }}>
             {podiumOrder.map((user, i) => {
               const realRank = ranked.findIndex(u => u.id === user.id) + 1;
-              const idx = i === 0 ? 1 : i === 1 ? 0 : 2;
+              const color = podiumColorsByRank[realRank] || "#94a3b8";
+              const height = podiumHeightsByRank[realRank] || "140px";
               return (
                 <div key={user.id} style={{ textAlign: "center", flex: 1 }}>
                   <div style={{ marginBottom: "8px" }}>
@@ -113,15 +138,18 @@ export default function LeaderboardPage() {
                     {user.credits.toLocaleString("tr-TR")}
                   </p>
                   <div style={{
-                    height: `${podiumHeights[idx]}px`,
+                    height,
+                    minHeight: height,
+                    maxHeight: height,
                     borderRadius: "12px 12px 0 0",
-                    background: `${podiumColors[idx]}18`,
-                    border: `2px solid ${podiumColors[idx]}40`,
+                    background: `${color}18`,
+                    border: `2px solid ${color}40`,
                     display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
                     paddingTop: "10px",
+                    overflow: "hidden",
                   }}>
                     <MedalIcon rank={realRank} />
-                    <span style={{ fontWeight: 800, fontSize: "1.2rem", color: podiumColors[idx], marginTop: "4px" }}>
+                    <span style={{ fontWeight: 800, fontSize: "1.2rem", color, marginTop: "4px" }}>
                       #{realRank}
                     </span>
                   </div>
@@ -133,7 +161,24 @@ export default function LeaderboardPage() {
 
         {/* Full ranking */}
         <div className="card">
-          {ranked.map((user, i) => {
+          {usersLoading ? (
+            <div style={{ padding: "12px 20px" }}>
+              <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginBottom: "10px" }}>Liderlik yükleniyor...</p>
+              {Array.from({ length: 6 }).map((_, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    height: "54px",
+                    borderRadius: "12px",
+                    background: "var(--surface-3)",
+                    border: "1px solid var(--border)",
+                    marginBottom: "10px",
+                    opacity: 0.65,
+                  }}
+                />
+              ))}
+            </div>
+          ) : ranked.map((user, i) => {
             const rank = i + 1;
             const isMe = user.id === currentUser?.id;
             return (

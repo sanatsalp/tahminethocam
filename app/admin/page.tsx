@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useApp } from "@/contexts/AppContext";
 import { Shield, Users, Trophy, PlusCircle, CheckCircle, XCircle, Trash2, Ban, RotateCcw, Coins, MinusCircle, MessageSquare, MessageSquareOff, Settings } from "lucide-react";
@@ -313,8 +313,23 @@ function ChatModPanel() {
 type TabId = "users" | "matches" | "chat";
 
 export default function AdminPage() {
-  const { users, matches, chatMessages, chatEnabled } = useApp();
+  const { users, matches, chatMessages, chatEnabled, ensureAdminData, currentUser } = useApp();
   const [tab, setTab] = useState<TabId>("users");
+  const [adminLoading, setAdminLoading] = useState(false);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    let alive = true;
+    setAdminLoading(true);
+    void ensureAdminData()
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setAdminLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [currentUser, ensureAdminData]);
 
   const pendingUsers = users.filter(u => u.role === "pending");
   const allUsers = users.filter(u => u.role !== "admin");
@@ -328,6 +343,27 @@ export default function AdminPage() {
   return (
     <AuthGuard requireAdmin>
       <div className="animate-fade-in" style={{ maxWidth: "900px", margin: "0 auto", padding: "2rem 1rem" }}>
+        {adminLoading ? (
+          <div className="card" style={{ padding: "1.5rem" }}>
+            <p style={{ fontWeight: 700, color: "var(--text)", marginBottom: "10px" }}>Admin verileri yükleniyor...</p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div
+                  key={i}
+                  style={{
+                    height: "64px",
+                    background: "var(--surface-3)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "12px",
+                    opacity: 0.65,
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {!adminLoading && (
+        <>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.75rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
@@ -431,6 +467,8 @@ export default function AdminPage() {
         )}
 
         {tab === "chat" && <ChatModPanel />}
+        </>
+        )}
       </div>
     </AuthGuard>
   );

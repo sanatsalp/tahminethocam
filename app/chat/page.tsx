@@ -23,12 +23,27 @@ function Avatar({ username, avatarUrl, size = 32 }: { username: string; avatarUr
 
 export default function ChatPage() {
   const { currentUser, chatMessages, chatEnabled, sendChatMessage, deleteChatMessage,
-    pinChatMessage, unpinChatMessage, users } = useApp();
+    pinChatMessage, unpinChatMessage, ensureChatMessages } = useApp();
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    let alive = true;
+    setChatLoading(true);
+    void ensureChatMessages()
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setChatLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [currentUser, ensureChatMessages]);
 
   // Auto scroll to bottom
   useEffect(() => {
@@ -38,9 +53,9 @@ export default function ChatPage() {
   if (!currentUser) return <AuthGuard><></></AuthGuard>;
 
   const isAdmin = currentUser.role === "admin";
-  const currentUserData = users.find(u => u.id === currentUser.id);
-  const isChatBlocked = currentUserData?.chatBlocked;
+  const isChatBlocked = currentUser.chatBlocked;
   const pinnedMsg = chatMessages.find(m => m.pinned);
+  const activeMembers = new Set(chatMessages.map(m => m.user_id)).size;
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
@@ -89,7 +104,7 @@ export default function ChatPage() {
           <div>
             <h1 style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text)" }}>💬 Topluluk Sohbeti</h1>
             <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "2px" }}>
-              {chatMessages.length} mesaj · {users.filter(u => u.role === "user" || u.role === "admin").length} aktif üye
+              {chatMessages.length} mesaj · {chatLoading ? "aktif üye yükleniyor..." : `${activeMembers} aktif üye`}
             </p>
           </div>
           {!chatEnabled && (
@@ -118,7 +133,11 @@ export default function ChatPage() {
       <div style={{ flex: 1, overflow: "auto", borderRadius: "14px",
         background: "var(--surface)", border: "1px solid var(--border)",
         padding: "1rem", display: "flex", flexDirection: "column", gap: "4px" }}>
-        {chatMessages.length === 0 && (
+        {chatLoading ? (
+          <div style={{ textAlign: "center", color: "var(--text-subtle)", margin: "auto" }}>
+            <p>Mesajlar yükleniyor...</p>
+          </div>
+        ) : chatMessages.length === 0 && (
           <div style={{ textAlign: "center", color: "var(--text-subtle)", margin: "auto" }}>
             <p>Henüz mesaj yok. İlk mesajı sen gönder!</p>
           </div>

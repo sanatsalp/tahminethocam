@@ -49,6 +49,14 @@ interface AppContextType extends AppState {
   sendChatMessage: (text: string) => Promise<{ success: boolean; error?: string }>;
   getUserById: (id: string) => Profile | undefined;
   getUserPredictions: (userId: string) => Prediction[];
+
+  // Lazy data loaders (route-based)
+  ensureDashboardSecondary: () => Promise<void>;
+  ensureLeaderboardUsers: () => Promise<void>;
+  ensureChatMessages: () => Promise<void>;
+  ensureProfileData: () => Promise<void>;
+  ensureAdminData: () => Promise<void>;
+  ensureMatchDetailData: (matchId: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -58,12 +66,16 @@ const REFRESH_DEBOUNCE_MS = 400;
 
 const PROFILE_SELECT =
   "id,username,email,role,credits,created_at,avatar_url,chat_blocked,is_approved,is_blocked";
-const SETTINGS_SELECT = "id,title,subtitle,logo_emoji,custom_logo_url,chat_enabled";
+const SETTINGS_SELECT =
+  "id,title,subtitle,logo_emoji,custom_logo_url,chat_enabled," +
+  "tower_game_enabled,tower_game_visible,tower_game_maintenance," +
+  "tower_game_max_bet_amount,tower_game_daily_play_limit";
 const MATCHES_SELECT =
   "id,title,player_a,player_b,player_a_img,player_b_img,odds_a,odds_b,status,winner,tournament,scheduled_at";
 const PREDICTIONS_SELECT = "id,user_id,match_id,choice,amount,potential_win,result,created_at";
 const TRANSACTIONS_SELECT = "id,user_id,amount,type,description,created_at";
 const CHAT_MESSAGES_SELECT = "id,user_id,username,avatar_url,text,created_at,pinned";
+const LEADERBOARD_PROFILE_SELECT = "id,username,role,credits,avatar_url";
 
 
 function getInitialState(): AppState {
@@ -89,6 +101,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const currentUserIdRef = useRef<string | null>(null);
   const refreshTimers = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
   const inFlight = useRef<Record<string, Promise<void> | null>>({});
+  const loadedRef = useRef({
+    dashboardSecondary: false,
+    leaderboardUsers: false,
+    chatMessages: false,
+    profileData: false,
+    adminData: false,
+    myPredictions: false,
+    myTransactions: false,
+    matchesState: false,
+    fetchedMatchIds: {} as Record<string, boolean>,
+  });
 
   const mapProfile = useCallback((row: Record<string, unknown>): Profile => ({
     id: String(row.id ?? ""),
@@ -111,6 +134,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       logoEmoji: (settingsRow.logo_emoji as string) || DEFAULT_SITE_SETTINGS.logoEmoji,
       customLogoUrl: settingsRow.custom_logo_url as string | undefined,
       chatEnabled: settingsRow.chat_enabled !== false,
+
+      towerGameEnabled: settingsRow.tower_game_enabled !== false,
+      towerGameVisible: settingsRow.tower_game_visible !== false,
+      towerGameMaintenance: Boolean(settingsRow.tower_game_maintenance),
+      towerGameMaxBetAmount: Number(settingsRow.tower_game_max_bet_amount ?? DEFAULT_SITE_SETTINGS.towerGameMaxBetAmount),
+      towerGameDailyPlayLimit: Number(
+        settingsRow.tower_game_daily_play_limit ?? DEFAULT_SITE_SETTINGS.towerGameDailyPlayLimit
+      ),
     };
   }, []);
 
@@ -182,19 +213,159 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, [runDeduped]);
 
-  const fetchSecondaryData = useCallback(async () => {
-    await runDeduped("secondary", async () => {
-      const [
-        { data: users },
-        { data: matches },
-        { data: predictions },
-        { data: transactions },
-        { data: chatMsgs },
-      ] = await Promise.all([
+  // ── Lazy slice fetchers (only called from the relevant pages) ─────────────
+  const fetchLeaderboardUsers = useCallback(async () => {
+    const { data: users } = await supabase
+      .from("profiles")
+      .select(LEADERBOARD_PROFILE_SELECT)
+      .order("credits", { ascending: false });
+
+    setState((s) => ({
+      ...s,
+      users: (users || []).map((u) => mapProfile(u as Record<string, unknown>)),
+    }));
+  }, [mapProfile]);
+
+  const fetchChatMessagesSlice = useCallback(async () => {
+    const { data: chatMsgs } = await supabase
+      .from("chat_messages")
+      .select(CHAT_MESSAGES_SELECT)
+      .order("created_at", { ascending: true })
+      .limit(200);
+
+    setState((s) => ({
+      ...s,
+      chatMessages: (chatMsgs || []).map((m) => ({
+        ...(m as ChatMessage),
+        avatarUrl: (m as Record<string, unknown>).avatar_url as string | undefined,
+      })),
+    }));
+  }, []);
+
+  const fetchMyPredictions = useCallback(async (userId: string): Promise<Prediction[]> => {
+    const { data: preds } = await supabase
+      .from("predictions")
+      .select(PREDICTIONS_SELECT)
+      .eq("user_id", userId);
+
+    setState((s) => ({
+      ...s,
+      predictions: (preds || []) as Prediction[],
+    }));
+
+    return (preds || []) as Prediction[];
+  }, []);
+
+  const fetchMyTransactions = useCallback(async (userId: string): Promise<CreditTransaction[]> => {
+    const { data: txs } = await supabase
+      .from("transactions")
+      .select(TRANSACTIONS_SELECT)
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    setState((s) => ({
+      ...s,
+      transactions: (txs || []) as CreditTransaction[],
+    }));
+
+    return (txs || []) as CreditTransaction[];
+  }, []);
+
+  const fetchClosedFinishedMatchesSlice = useCallback(async () => {
+    const { data: matches } = await supabase
+      .from("matches")
+      .select(MATCHES_SELECT)
+      .in("status", ["closed", "finished"])
+      .order("scheduled_at", { ascending: true });
+
+    setState((s) => ({
+      ...s,
+      matches: (matches || []) as Match[],
+    }));
+  }, []);
+
+  const fetchMatchesByIdsSlice = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) return;
+    const { data: rows } = await supabase
+      .from("matches")
+      .select(MATCHES_SELECT)
+      .in("id", ids);
+
+    setState((s) => {
+      const next = [...s.matches];
+      const byId = new Map(next.map((m) => [m.id, m]));
+      (rows || []).forEach((m) => {
+        byId.set((m as Match).id, m as Match);
+      });
+      return { ...s, matches: Array.from(byId.values()) };
+    });
+  }, []);
+
+  const ensureDashboardSecondary = useCallback(async () => {
+    if (!state.currentUser) return;
+    if (loadedRef.current.dashboardSecondary) return;
+
+    await runDeduped("dashboard_secondary", async () => {
+      const userId = state.currentUser!.id;
+      await Promise.all([
+        fetchClosedFinishedMatchesSlice(),
+        fetchMyPredictions(userId),
+      ]);
+
+      loadedRef.current.dashboardSecondary = true;
+      loadedRef.current.matchesState = true;
+      loadedRef.current.myPredictions = true;
+    });
+  }, [fetchClosedFinishedMatchesSlice, fetchMyPredictions, runDeduped, state.currentUser]);
+
+  const ensureLeaderboardUsers = useCallback(async () => {
+    if (loadedRef.current.leaderboardUsers) return;
+
+    await runDeduped("leaderboard_users", async () => {
+      await fetchLeaderboardUsers();
+      loadedRef.current.leaderboardUsers = true;
+    });
+  }, [fetchLeaderboardUsers, runDeduped]);
+
+  const ensureChatMessages = useCallback(async () => {
+    if (loadedRef.current.chatMessages) return;
+
+    await runDeduped("chat_messages", async () => {
+      await fetchChatMessagesSlice();
+      loadedRef.current.chatMessages = true;
+    });
+  }, [fetchChatMessagesSlice, runDeduped]);
+
+  const ensureProfileData = useCallback(async () => {
+    if (!state.currentUser) return;
+    if (loadedRef.current.profileData) return;
+
+    await runDeduped("profile_data", async () => {
+      const userId = state.currentUser!.id;
+
+      const [preds] = await Promise.all([
+        fetchMyPredictions(userId),
+        fetchMyTransactions(userId),
+      ]);
+
+      // matches join for the user's predictions
+      const matchIds = Array.from(new Set((preds || []).map((p) => p.match_id)));
+      await fetchMatchesByIdsSlice(matchIds);
+
+      loadedRef.current.myPredictions = true;
+      loadedRef.current.myTransactions = true;
+      loadedRef.current.matchesState = true;
+      loadedRef.current.profileData = true;
+    });
+  }, [fetchMatchesByIdsSlice, fetchMyPredictions, fetchMyTransactions, runDeduped, state.currentUser]);
+
+  const ensureAdminData = useCallback(async () => {
+    if (loadedRef.current.adminData) return;
+
+    await runDeduped("admin_data", async () => {
+      const [{ data: users }, { data: matches }, { data: chatMsgs }] = await Promise.all([
         supabase.from("profiles").select(PROFILE_SELECT).order("credits", { ascending: false }),
         supabase.from("matches").select(MATCHES_SELECT).order("scheduled_at", { ascending: true }),
-        supabase.from("predictions").select(PREDICTIONS_SELECT),
-        supabase.from("transactions").select(TRANSACTIONS_SELECT).order("created_at", { ascending: false }),
         supabase.from("chat_messages").select(CHAT_MESSAGES_SELECT).order("created_at", { ascending: true }).limit(200),
       ]);
 
@@ -202,47 +373,89 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...s,
         users: (users || []).map((u) => mapProfile(u as Record<string, unknown>)),
         matches: (matches || []) as Match[],
-        predictions: (predictions || []) as Prediction[],
-        transactions: (transactions || []) as CreditTransaction[],
         chatMessages: (chatMsgs || []).map((m) => ({
           ...(m as ChatMessage),
           avatarUrl: (m as Record<string, unknown>).avatar_url as string | undefined,
         })),
       }));
+      loadedRef.current.matchesState = true;
+      loadedRef.current.chatMessages = true;
+      loadedRef.current.myPredictions = false; // admin closeMatch re-queries pending predictions
+      loadedRef.current.adminData = true;
     });
   }, [mapProfile, runDeduped]);
 
-  const bootstrapAuthAndCritical = useCallback(async () => {
-    try {
-      try {
-        const cachedSettings = sessionStorage.getItem(SETTINGS_CACHE_KEY);
-        if (cachedSettings) {
-          const parsed = JSON.parse(cachedSettings) as SiteSettings;
-          setState((s) => ({
-            ...s,
-            siteSettings: parsed,
-            chatEnabled: parsed.chatEnabled ?? true,
-          }));
-        }
-      } catch {}
+  const ensureMatchDetailData = useCallback(async (matchId: string) => {
+    if (!state.currentUser) return;
+    const alreadyHaveMatch = state.matches.some((m) => m.id === matchId) || state.openMatches.some((m) => m.id === matchId);
+    const alreadyHavePred = state.predictions.some((p) => p.match_id === matchId && p.user_id === state.currentUser!.id);
+    if (alreadyHaveMatch && alreadyHavePred) return;
+    if (loadedRef.current.fetchedMatchIds[matchId] && alreadyHavePred) return;
 
-      const [
-        { data: { session } },
-        { data: settingsRow },
-      ] = await Promise.all([
-        supabase.auth.getSession(),
-        supabase.from("site_settings").select(SETTINGS_SELECT).eq("id", 1).single(),
+    let hadMatch = false;
+    let hadPrediction = false;
+    await runDeduped(`match_detail_${matchId}`, async () => {
+      const [{ data: matchRow }, { data: predRow }] = await Promise.all([
+        supabase.from("matches").select(MATCHES_SELECT).eq("id", matchId).single(),
+        supabase
+          .from("predictions")
+          .select(PREDICTIONS_SELECT)
+          .eq("user_id", state.currentUser!.id)
+          .eq("match_id", matchId)
+          .maybeSingle(),
       ]);
 
-      const mappedSettings = mapSettings(settingsRow as Record<string, unknown> | null);
+      if (matchRow) {
+        hadMatch = true;
+        setState((s) => {
+          const byId = new Map(s.matches.map((m) => [m.id, m]));
+          byId.set((matchRow as Match).id, matchRow as Match);
+          return { ...s, matches: Array.from(byId.values()) };
+        });
+      }
+
+      if (predRow) {
+        hadPrediction = true;
+        setState((s) => {
+          const next = [...s.predictions];
+          const idx = next.findIndex((p) => p.id === predRow.id);
+          if (idx >= 0) next[idx] = predRow as Prediction;
+          else next.push(predRow as Prediction);
+          return { ...s, predictions: next };
+        });
+      }
+    });
+
+    loadedRef.current.matchesState = true;
+    if (hadPrediction) loadedRef.current.myPredictions = true;
+    if (hadMatch) loadedRef.current.fetchedMatchIds[matchId] = true;
+  }, [runDeduped, state.currentUser, state.matches, state.openMatches, state.predictions]);
+
+  const bootstrapAuthAndCritical = useCallback(async () => {
+    try {
+      let cachedSettings: SiteSettings | null = null;
       try {
-        sessionStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(mappedSettings));
+        const cachedSettingsRaw = sessionStorage.getItem(SETTINGS_CACHE_KEY);
+        cachedSettings = cachedSettingsRaw ? (JSON.parse(cachedSettingsRaw) as SiteSettings) : null;
       } catch {}
+
+      if (cachedSettings) {
+        setState((s) => ({
+          ...s,
+          siteSettings: cachedSettings as SiteSettings,
+          chatEnabled: cachedSettings.chatEnabled ?? true,
+        }));
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
       if (!session) {
         try {
           sessionStorage.removeItem(PROFILE_CACHE_KEY);
         } catch {}
+
         setState((s) => ({
           ...s,
           currentUser: null,
@@ -251,23 +464,80 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           activeMatchCountLoading: false,
           openMatches: [],
           openMatchesLoading: false,
-          siteSettings: mappedSettings,
-          chatEnabled: mappedSettings.chatEnabled ?? true,
+          siteSettings: cachedSettings ?? DEFAULT_SITE_SETTINGS,
+          chatEnabled: (cachedSettings?.chatEnabled ?? DEFAULT_SITE_SETTINGS.chatEnabled) ?? true,
         }));
         return;
       }
 
-      const cachedRaw = sessionStorage.getItem(PROFILE_CACHE_KEY);
-      if (cachedRaw) {
+      const myId = session.user.id;
+
+      const cachedProfile = (() => {
         try {
-          const cachedProfile = JSON.parse(cachedRaw) as Profile;
-          if (cachedProfile.id === session.user.id) {
-            setState((s) => ({ ...s, currentUser: cachedProfile }));
+          const cachedRaw = sessionStorage.getItem(PROFILE_CACHE_KEY);
+          if (!cachedRaw) return null;
+          const parsed = JSON.parse(cachedRaw) as Profile;
+          return parsed?.id === myId ? parsed : null;
+        } catch {
+          return null;
+        }
+      })();
+
+      // Phase 1: Auth + profile from cache (or fresh fetch) => unlock UI immediately.
+      if (cachedProfile) {
+        setState((s) => ({
+          ...s,
+          currentUser: cachedProfile,
+          authLoading: false,
+          siteSettings: cachedSettings ?? s.siteSettings,
+          chatEnabled: (cachedSettings?.chatEnabled ?? s.chatEnabled) ?? true,
+        }));
+
+        // Revalidate in background (do not block UI)
+        void (async () => {
+          try {
+            const [settingsRes, profileRes] = await Promise.all([
+              supabase.from("site_settings").select(SETTINGS_SELECT).eq("id", 1).single(),
+              supabase.from("profiles").select(PROFILE_SELECT).eq("id", myId).single(),
+            ]);
+
+            const mappedSettings = mapSettings(settingsRes.data as Record<string, unknown> | null);
+            try {
+              sessionStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(mappedSettings));
+            } catch {}
+
+            const mappedProfile = profileRes.data ? mapProfile(profileRes.data as Record<string, unknown>) : null;
+            if (mappedProfile) {
+              try {
+                sessionStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(mappedProfile));
+              } catch {}
+            }
+
+            setState((s) => ({
+              ...s,
+              currentUser: mappedProfile ?? s.currentUser,
+              siteSettings: mappedSettings,
+              chatEnabled: mappedSettings.chatEnabled ?? true,
+            }));
+          } catch {
+            // Silently ignore revalidate errors; UI is already unlocked.
           }
-        } catch {}
+        })();
+
+        return;
       }
 
-      const { data: profileRow } = await supabase.from("profiles").select(PROFILE_SELECT).eq("id", session.user.id).single();
+      // No usable cache: fetch critical profile before unlocking.
+      const [{ data: settingsRow }, { data: profileRow }] = await Promise.all([
+        supabase.from("site_settings").select(SETTINGS_SELECT).eq("id", 1).single(),
+        supabase.from("profiles").select(PROFILE_SELECT).eq("id", myId).single(),
+      ]);
+
+      const mappedSettings = mapSettings(settingsRow as Record<string, unknown> | null);
+      try {
+        sessionStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(mappedSettings));
+      } catch {}
+
       const mappedProfile = profileRow ? mapProfile(profileRow as Record<string, unknown>) : null;
       if (mappedProfile) {
         try {
@@ -295,7 +565,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void bootstrapAuthAndCritical().then(() => {
       void fetchDashboardPrimary();
-      void fetchSecondaryData();
     });
 
     const channel = supabase.channel("global_sync")
@@ -303,48 +572,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         scheduleRefresh("settings", fetchSettings);
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => {
-        scheduleRefresh("users", async () => {
-          const { data: users } = await supabase.from("profiles").select(PROFILE_SELECT).order("credits", { ascending: false });
-          setState((s) => ({ ...s, users: (users || []).map((u) => mapProfile(u as Record<string, unknown>)) }));
-          if (currentUserIdRef.current) {
-            await fetchProfile(currentUserIdRef.current);
-          }
-        });
+        const myId = currentUserIdRef.current;
+        if (myId) {
+          scheduleRefresh("my_profile", async () => {
+            await fetchProfile(myId);
+          });
+        }
+
+        if (loadedRef.current.adminData) {
+          scheduleRefresh("admin_users", async () => {
+            const { data: users } = await supabase
+              .from("profiles")
+              .select(PROFILE_SELECT)
+              .order("credits", { ascending: false });
+            setState((s) => ({
+              ...s,
+              users: (users || []).map((u) => mapProfile(u as Record<string, unknown>)),
+            }));
+          });
+        } else if (loadedRef.current.leaderboardUsers) {
+          scheduleRefresh("leaderboard_users", async () => {
+            await fetchLeaderboardUsers();
+          });
+        }
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "matches" }, () => {
         scheduleRefresh("matches_primary", fetchDashboardPrimary);
-        scheduleRefresh("matches", async () => {
-          const { data: matches } = await supabase.from("matches").select(MATCHES_SELECT).order("scheduled_at", { ascending: true });
-          setState((s) => ({ ...s, matches: (matches || []) as Match[] }));
-        });
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "predictions" }, () => {
-        scheduleRefresh("predictions", async () => {
-          const { data: predictions } = await supabase.from("predictions").select(PREDICTIONS_SELECT);
-          setState((s) => ({ ...s, predictions: (predictions || []) as Prediction[] }));
-        });
+        const myId = currentUserIdRef.current;
+        if (loadedRef.current.myPredictions && myId) {
+          scheduleRefresh("my_predictions", async () => {
+            await fetchMyPredictions(myId);
+          });
+        }
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "transactions" }, () => {
-        scheduleRefresh("transactions", async () => {
-          const { data: transactions } = await supabase.from("transactions").select(TRANSACTIONS_SELECT).order("created_at", { ascending: false });
-          setState((s) => ({ ...s, transactions: (transactions || []) as CreditTransaction[] }));
-        });
+        const myId = currentUserIdRef.current;
+        if (loadedRef.current.myTransactions && myId) {
+          scheduleRefresh("my_transactions", async () => {
+            await fetchMyTransactions(myId);
+          });
+        }
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "chat_messages" }, () => {
-        scheduleRefresh("chat", async () => {
-          const { data: chatMsgs } = await supabase
-            .from("chat_messages")
-            .select(CHAT_MESSAGES_SELECT)
-            .order("created_at", { ascending: true })
-            .limit(200);
-          setState((s) => ({
-            ...s,
-            chatMessages: (chatMsgs || []).map((m) => ({
-              ...(m as ChatMessage),
-              avatarUrl: (m as Record<string, unknown>).avatar_url as string | undefined,
-            })),
-          }));
-        });
+        if (loadedRef.current.chatMessages) {
+          scheduleRefresh("chat_messages", fetchChatMessagesSlice);
+        }
       })
       .subscribe();
 
@@ -353,7 +627,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         try {
           sessionStorage.removeItem(PROFILE_CACHE_KEY);
         } catch {}
-        setState((s) => ({ ...s, currentUser: null, authLoading: false }));
+        loadedRef.current = {
+          dashboardSecondary: false,
+          leaderboardUsers: false,
+          chatMessages: false,
+          profileData: false,
+          adminData: false,
+          myPredictions: false,
+          myTransactions: false,
+          matchesState: false,
+          fetchedMatchIds: {} as Record<string, boolean>,
+        };
+        setState((s) => ({
+          ...s,
+          currentUser: null,
+          authLoading: false,
+          activeMatchCount: null,
+          activeMatchCountLoading: false,
+          openMatches: [],
+          openMatchesLoading: false,
+          users: [],
+          matches: [],
+          predictions: [],
+          transactions: [],
+          chatMessages: [],
+        }));
         return;
       }
       await runDeduped("auth_profile", async () => {
@@ -370,7 +668,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (timer) clearTimeout(timer);
       });
     };
-  }, [bootstrapAuthAndCritical, fetchDashboardPrimary, fetchSecondaryData, fetchProfile, fetchSettings, mapProfile, runDeduped, scheduleRefresh]);
+  }, [
+    bootstrapAuthAndCritical,
+    fetchDashboardPrimary,
+    fetchProfile,
+    fetchSettings,
+    fetchLeaderboardUsers,
+    fetchChatMessagesSlice,
+    fetchMyPredictions,
+    fetchMyTransactions,
+    runDeduped,
+    scheduleRefresh,
+  ]);
 
   // ── Auth ─────────────────────────────────────────────────
   const login = async (username: string, password: string) => {
@@ -390,13 +699,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await runDeduped("post_login", async () => {
       await bootstrapAuthAndCritical();
       await fetchDashboardPrimary();
-      void fetchSecondaryData();
     });
     return { success: true };
   };
 
   const logout = async () => {
     await supabase.auth.signOut();
+    loadedRef.current = {
+      dashboardSecondary: false,
+      leaderboardUsers: false,
+      chatMessages: false,
+      profileData: false,
+      adminData: false,
+      myPredictions: false,
+      myTransactions: false,
+      matchesState: false,
+      fetchedMatchIds: {} as Record<string, boolean>,
+    };
     try {
       sessionStorage.removeItem(PROFILE_CACHE_KEY);
     } catch {}
@@ -407,6 +726,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       activeMatchCountLoading: false,
       openMatches: [],
       openMatchesLoading: false,
+      users: [],
+      matches: [],
+      predictions: [],
+      transactions: [],
+      chatMessages: [],
     }));
   };
 
@@ -442,8 +766,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ── Predictions ───────────────────────────────────────────
   const placePrediction = async (matchId: string, choice: "A" | "B", amount: number) => {
     if (!state.currentUser) return { success: false, error: "Giriş yapmanız gerekiyor" };
-    const user = state.users.find(u => u.id === state.currentUser!.id);
-    if (!user) return { success: false, error: "Kullanıcı bulunamadı" };
+    const user = state.currentUser;
     if (user.credits < amount) return { success: false, error: "Yetersiz kredi" };
 
     const match = state.matches.find(m => m.id === matchId) ?? state.openMatches.find(m => m.id === matchId);
@@ -451,20 +774,58 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (state.predictions.find(p => p.user_id === user.id && p.match_id === matchId))
       return { success: false, error: "Bu maça zaten tahmin yaptınız" };
 
+    // Predictions slice lazy yüklendiyse, çakışmayı garanti etmek için minimum kontrol yap.
+    if (!loadedRef.current.myPredictions) {
+      const { data: existing } = await supabase
+        .from("predictions")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("match_id", matchId)
+        .limit(1);
+      if (existing && existing.length > 0)
+        return { success: false, error: "Bu maça zaten tahmin yaptınız" };
+    }
+
     const odds = choice === "A" ? match.odds_a : match.odds_b;
     const potentialWin = Math.round(amount * odds);
 
-    const { error } = await supabase.from("predictions").insert({
-      user_id: user.id, match_id: matchId, choice, amount, potential_win: potentialWin, result: "pending",
-    });
+    const { data: inserted, error } = await supabase
+      .from("predictions")
+      .insert({
+        user_id: user.id,
+        match_id: matchId,
+        choice,
+        amount,
+        potential_win: potentialWin,
+        result: "pending",
+      })
+      .select(PREDICTIONS_SELECT)
+      .single();
+
     if (error) return { success: false, error: "Bir sistem hatası oluştu." };
 
-    await supabase.from("transactions").insert({
-      user_id: user.id, amount: -amount, type: "prediction",
-      description: `Tahmin - ${match.player_a} vs ${match.player_b}`,
-    });
-    await supabase.from("profiles").update({ credits: user.credits - amount }).eq("id", user.id);
+    const newCredits = user.credits - amount;
+    const txDesc = `Tahmin - ${match.player_a} vs ${match.player_b}`;
+    await Promise.all([
+      supabase.from("transactions").insert({
+        user_id: user.id,
+        amount: -amount,
+        type: "prediction",
+        description: txDesc,
+      }),
+      supabase.from("profiles").update({ credits: newCredits }).eq("id", user.id),
+    ]);
 
+    setState((s) => ({
+      ...s,
+      currentUser: s.currentUser ? { ...s.currentUser, credits: newCredits } : s.currentUser,
+      predictions: inserted
+        ? [...s.predictions.filter(p => !(p.user_id === user.id && p.match_id === matchId)), inserted as Prediction]
+        : s.predictions,
+      users: s.users.map(u => (u.id === user.id ? { ...u, credits: newCredits } : u)),
+    }));
+
+    loadedRef.current.myPredictions = true;
     return { success: true };
   };
 
@@ -518,29 +879,88 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const closeMatch = async (matchId: string, winner: "A" | "B") => {
-    const match = state.matches.find(m => m.id === matchId);
-    if (!match) return;
+    const { data: matchRow } = await supabase
+      .from("matches")
+      .select("id,player_a,player_b,odds_a,odds_b")
+      .eq("id", matchId)
+      .single();
+
+    if (!matchRow) return;
+
     await supabase.from("matches").update({ status: "finished", winner }).eq("id", matchId);
+    setState((s) => ({
+      ...s,
+      matches: s.matches.map((m) => (m.id === matchId ? { ...m, status: "finished", winner } : m)),
+      openMatches: s.openMatches.map((m) => (m.id === matchId ? { ...m, status: "finished", winner } : m)),
+    }));
 
-    const odds = winner === "A" ? match.odds_a : match.odds_b;
-    const pendingPreds = state.predictions.filter(p => p.match_id === matchId && p.result === "pending");
+    const odds = winner === "A" ? matchRow.odds_a : matchRow.odds_b;
 
-    for (const p of pendingPreds) {
-      if (p.choice === winner) {
-        const winAmount = Math.round(p.amount * odds);
-        await supabase.from("predictions").update({ result: "won" }).eq("id", p.id);
-        const u = state.users.find(u => u.id === p.user_id);
-        if (u) {
-          await supabase.from("profiles").update({ credits: u.credits + winAmount }).eq("id", u.id);
-          await supabase.from("transactions").insert({
-            user_id: p.user_id, amount: winAmount, type: "win",
-            description: `Kazanç - ${match.player_a} vs ${match.player_b}`,
-          });
-        }
-      } else {
-        await supabase.from("predictions").update({ result: "lost" }).eq("id", p.id);
-      }
+    const { data: pendingPreds } = await supabase
+      .from("predictions")
+      .select("id,user_id,choice,amount")
+      .eq("match_id", matchId)
+      .eq("result", "pending");
+
+    const preds = pendingPreds || [];
+    const winners = preds.filter((p) => p.choice === winner);
+
+    // Toplu durum güncellemesi (sadece pending)
+    await Promise.all([
+      supabase
+        .from("predictions")
+        .update({ result: "won" })
+        .eq("match_id", matchId)
+        .eq("result", "pending")
+        .eq("choice", winner),
+      supabase
+        .from("predictions")
+        .update({ result: "lost" })
+        .eq("match_id", matchId)
+        .eq("result", "pending")
+        .neq("choice", winner),
+    ]);
+
+    if (winners.length === 0) return;
+
+    // Aynı kullanıcı birden fazla tahmin verdiyse toplu kazanç hesapla.
+    const winByUser = new Map<string, number>();
+    for (const p of winners) {
+      const winAmount = Math.round(p.amount * odds);
+      winByUser.set(p.user_id, (winByUser.get(p.user_id) || 0) + winAmount);
     }
+
+    const winnerUserIds = Array.from(winByUser.keys());
+    const { data: winnerProfiles } = await supabase
+      .from("profiles")
+      .select("id,credits")
+      .in("id", winnerUserIds);
+
+    const txDesc = `Kazanç - ${matchRow.player_a} vs ${matchRow.player_b}`;
+
+    await Promise.all(
+      (winnerProfiles || []).map(async (u) => {
+        const inc = winByUser.get(u.id) || 0;
+        const nextCredits = u.credits + inc;
+        await supabase.from("profiles").update({ credits: nextCredits }).eq("id", u.id);
+        await supabase.from("transactions").insert({
+          user_id: u.id,
+          amount: inc,
+          type: "win",
+          description: txDesc,
+        });
+      })
+    );
+
+    // UI'ı hızlı güncelle: kazanmış tüm kullanıcıların kredilerini lokal state'te yansıt.
+    setState((s) => ({
+      ...s,
+      currentUser:
+        s.currentUser && winByUser.has(s.currentUser.id)
+          ? { ...s.currentUser, credits: s.currentUser.credits + (winByUser.get(s.currentUser.id) || 0) }
+          : s.currentUser,
+      users: s.users.map((u) => (winByUser.has(u.id) ? { ...u, credits: u.credits + (winByUser.get(u.id) || 0) } : u)),
+    }));
   };
 
   const deleteMatch = async (matchId: string) => {
@@ -572,12 +992,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await supabase.from("chat_messages").update({ pinned: false }).eq("id", id);
   };
 
-  const updateSiteSettings = async (settings: Partial<SiteSettings>) => {
+    const updateSiteSettings = async (settings: Partial<SiteSettings>) => {
     const dbParams: Record<string, unknown> = {};
     if (settings.title !== undefined) dbParams.title = settings.title;
     if (settings.subtitle !== undefined) dbParams.subtitle = settings.subtitle;
     if (settings.logoEmoji !== undefined) dbParams.logo_emoji = settings.logoEmoji;
     if (settings.customLogoUrl !== undefined) dbParams.custom_logo_url = settings.customLogoUrl;
+      if (settings.chatEnabled !== undefined) dbParams.chat_enabled = settings.chatEnabled;
+      if (settings.towerGameEnabled !== undefined) dbParams.tower_game_enabled = settings.towerGameEnabled;
+      if (settings.towerGameVisible !== undefined) dbParams.tower_game_visible = settings.towerGameVisible;
+      if (settings.towerGameMaintenance !== undefined) dbParams.tower_game_maintenance = settings.towerGameMaintenance;
+      if (settings.towerGameMaxBetAmount !== undefined) dbParams.tower_game_max_bet_amount = settings.towerGameMaxBetAmount;
+      if (settings.towerGameDailyPlayLimit !== undefined) dbParams.tower_game_daily_play_limit = settings.towerGameDailyPlayLimit;
     await supabase.from("site_settings").update(dbParams).eq("id", 1);
   };
 
@@ -585,8 +1011,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const sendChatMessage = async (text: string) => {
     if (!state.currentUser) return { success: false, error: "Giriş yapmanız gerekiyor" };
     if (!state.chatEnabled) return { success: false, error: "Sohbet şu an devre dışı" };
-    const user = state.users.find(u => u.id === state.currentUser!.id);
-    if (!user) return { success: false, error: "Kullanıcı bilgisi alınamadı" };
+    const user = state.currentUser;
     if (user.chatBlocked) return { success: false, error: "Sohbet gönderme yetkiniz kaldırılmış" };
     if (!text.trim()) return { success: false, error: "Mesaj boş olamaz" };
 
@@ -604,29 +1029,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     setState((s) => ({ ...s, chatMessages: [...s.chatMessages, optimistic] }));
 
-    const { error } = await supabase.from("chat_messages").insert({
-      user_id: user.id, username: user.username, avatar_url: user.avatarUrl, text: cleanText,
-    });
+    const { data: inserted, error } = await supabase
+      .from("chat_messages")
+      .insert({
+        user_id: user.id,
+        username: user.username,
+        avatar_url: user.avatarUrl,
+        text: cleanText,
+      })
+      .select(CHAT_MESSAGES_SELECT)
+      .single();
 
-    if (error) {
+    if (error || !inserted) {
       setState((s) => ({ ...s, chatMessages: s.chatMessages.filter((m) => m.id !== tempId) }));
       return { success: false, error: "Mesaj gönderilemedi" };
     }
 
-    scheduleRefresh("chat_after_send", async () => {
-      const { data: chatMsgs } = await supabase
-        .from("chat_messages")
-        .select(CHAT_MESSAGES_SELECT)
-        .order("created_at", { ascending: true })
-        .limit(200);
-      setState((s) => ({
-        ...s,
-        chatMessages: (chatMsgs || []).map((m) => ({
-          ...(m as ChatMessage),
-          avatarUrl: (m as Record<string, unknown>).avatar_url as string | undefined,
-        })),
-      }));
-    });
+    const mappedInserted: ChatMessage = {
+      ...(inserted as ChatMessage),
+      avatarUrl: (inserted as Record<string, unknown>).avatar_url as string | undefined,
+    };
+
+    setState((s) => ({
+      ...s,
+      chatMessages: s.chatMessages.map((m) => (m.id === tempId ? mappedInserted : m)),
+    }));
 
     return { success: true };
   };
@@ -652,6 +1079,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       updateSiteSettings,
       sendChatMessage,
       getUserById, getUserPredictions,
+      ensureDashboardSecondary,
+      ensureLeaderboardUsers,
+      ensureChatMessages,
+      ensureProfileData,
+      ensureAdminData,
+      ensureMatchDetailData,
     }}>
       {children}
     </AppContext.Provider>
