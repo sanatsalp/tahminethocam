@@ -133,10 +133,11 @@ DECLARE
   v_maintenance BOOLEAN := false;
   v_max_level INT := 5;
   v_tile_count INT := 3;
-  v_multipliers NUMERIC[] := ARRAY[1.0, 1.40, 2.00, 2.80, 4.00, 5.50];
+  v_multiplier_step NUMERIC := 1.25;
+  v_multipliers NUMERIC[] := ARRAY[1.0, 1.30, 1.70, 2.25, 3.00, 4.00];
   v_session tower_game_sessions%ROWTYPE;
   v_next_level INT;
-  v_safe_index INT;
+  v_losing_index INT;
   v_next_multiplier NUMERIC;
 BEGIN
   IF v_user_id IS NULL THEN
@@ -182,10 +183,10 @@ BEGIN
 
   v_next_level := p_current_level + 1;
 
-  -- Deterministic safe index per session + level + server secret.
-  v_safe_index := mod(abs(hashtext(p_session_id::text || ':' || v_next_level::text || ':' || v_secret)), v_tile_count);
+  -- Deterministic losing index per session + level + server secret.
+  v_losing_index := mod(abs(hashtext(p_session_id::text || ':' || v_next_level::text || ':' || v_secret)), v_tile_count);
 
-  IF p_chosen_index = v_safe_index THEN
+  IF p_chosen_index <> v_losing_index THEN
     v_next_multiplier := v_multipliers[v_next_level + 1];
     is_correct := true;
     next_level := v_next_level;
@@ -220,11 +221,12 @@ DECLARE
   v_maintenance BOOLEAN := false;
   v_max_level INT := 5;
   v_tile_count INT := 3;
-  v_multipliers NUMERIC[] := ARRAY[1.0, 1.40, 2.00, 2.80, 4.00, 5.50];
+  v_multiplier_step NUMERIC := 1.25;
+  v_multipliers NUMERIC[] := ARRAY[1.0, 1.30, 1.70, 2.25, 3.00, 4.00];
   v_session tower_game_sessions%ROWTYPE;
   v_correct_count INT := 0;
   v_i INT;
-  v_safe_index INT;
+  v_losing_index INT;
   v_multiplier NUMERIC;
 BEGIN
   IF v_user_id IS NULL THEN
@@ -271,8 +273,8 @@ BEGIN
   -- Count consecutive correct picks from the start.
   v_correct_count := 0;
   FOR v_i IN 1..array_length(p_picked_indices, 1) LOOP
-    v_safe_index := mod(abs(hashtext(p_session_id::text || ':' || v_i::text || ':' || v_secret)), v_tile_count);
-    IF p_picked_indices[v_i] = v_safe_index THEN
+    v_losing_index := mod(abs(hashtext(p_session_id::text || ':' || v_i::text || ':' || v_secret)), v_tile_count);
+    IF p_picked_indices[v_i] <> v_losing_index THEN
       v_correct_count := v_correct_count + 1;
     ELSE
       EXIT;
@@ -316,11 +318,12 @@ DECLARE
   v_maintenance BOOLEAN := false;
   v_max_level INT := 5;
   v_tile_count INT := 3;
-  v_multipliers NUMERIC[] := ARRAY[1.0, 1.40, 2.00, 2.80, 4.00, 5.50];
+  v_multiplier_step NUMERIC := 1.25;
+  v_multipliers NUMERIC[] := ARRAY[1.0, 1.30, 1.70, 2.25, 3.00, 4.00];
   v_session tower_game_sessions%ROWTYPE;
   v_correct_count INT := 0;
   v_i INT;
-  v_safe_index INT;
+  v_losing_index INT;
   v_multiplier NUMERIC;
   v_payout INT;
   v_new_credits INT;
@@ -369,8 +372,8 @@ BEGIN
   -- Validate all picks are consecutive correct from level 1.
   v_correct_count := 0;
   FOR v_i IN 1..array_length(p_picked_indices, 1) LOOP
-    v_safe_index := mod(abs(hashtext(p_session_id::text || ':' || v_i::text || ':' || v_secret)), v_tile_count);
-    IF p_picked_indices[v_i] = v_safe_index THEN
+    v_losing_index := mod(abs(hashtext(p_session_id::text || ':' || v_i::text || ':' || v_secret)), v_tile_count);
+    IF p_picked_indices[v_i] <> v_losing_index THEN
       v_correct_count := v_correct_count + 1;
     ELSE
       -- If any pick is wrong, treat as loss: no payout.
