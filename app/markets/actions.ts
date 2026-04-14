@@ -57,40 +57,47 @@ export type MarketsFilter = "all" | "trending" | "ending_soon" | "resolved";
 export async function getMarkets(
   filter: MarketsFilter = "all"
 ): Promise<PredictionMarket[]> {
+  // Build base query — always join options inline
   let query = supabase
     .from("prediction_markets")
-    .select("*, options:prediction_options(*)");
+    .select("*, options:prediction_options(id,market_id,label,pool,created_at)");
 
-  if (filter === "trending") {
-    query = query
-      .eq("status", "open")
-      .order("total_pool", { ascending: false })
-      .limit(20);
-  } else if (filter === "ending_soon") {
-    query = query
-      .eq("status", "open")
-      .gte("end_time", new Date().toISOString())
-      .order("end_time", { ascending: true })
-      .limit(20);
-  } else if (filter === "resolved") {
-    query = query
-      .eq("status", "resolved")
-      .order("created_at", { ascending: false })
-      .limit(50);
-  } else {
-    query = query
-      .in("status", ["open", "closed"])
-      .order("created_at", { ascending: false })
-      .limit(50);
+  switch (filter) {
+    case "trending":
+      query = query
+        .in("status", ["open", "closed"])
+        .order("total_pool", { ascending: false })
+        .limit(20);
+      break;
+    case "ending_soon":
+      query = query
+        .eq("status", "open")
+        .gte("end_time", new Date().toISOString())
+        .order("end_time", { ascending: true })
+        .limit(20);
+      break;
+    case "resolved":
+      query = query
+        .eq("status", "resolved")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      break;
+    default:
+      // "all" — show open + closed (active markets), most recent first
+      query = query
+        .in("status", ["open", "closed"])
+        .order("created_at", { ascending: false })
+        .limit(100);
   }
 
   const { data, error } = await query;
+
   if (error) {
-    console.error("getMarkets error:", error);
+    console.error("getMarkets error:", error.message, error.details);
     return [];
   }
 
-  return (data || []).map((row) => {
+  return (data ?? []).map((row) => {
     const market = mapMarket(row as Record<string, unknown>);
     const rawOptions = (row as Record<string, unknown>).options;
     market.options = Array.isArray(rawOptions)
@@ -100,17 +107,34 @@ export async function getMarkets(
   });
 }
 
+// Dedicated count for "active" (open) markets — used by hero stat widget
+export async function getActiveMarketsCount(): Promise<number> {
+  const { count, error } = await supabase
+    .from("prediction_markets")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "open");
+
+  if (error) {
+    console.error("getActiveMarketsCount error:", error.message);
+    return 0;
+  }
+  return count ?? 0;
+}
+
 export async function getMarketDetail(
   marketId: string,
   userId?: string
 ): Promise<PredictionMarket | null> {
   const { data, error } = await supabase
     .from("prediction_markets")
-    .select("*, options:prediction_options(*)")
+    .select("*, options:prediction_options(id,market_id,label,pool,created_at)")
     .eq("id", marketId)
     .single();
 
-  if (error || !data) return null;
+  if (error || !data) {
+    if (error) console.error("getMarketDetail error:", error.message);
+    return null;
+  }
 
   const market = mapMarket(data as Record<string, unknown>);
   const rawOptions = (data as Record<string, unknown>).options;
@@ -144,7 +168,7 @@ export async function getPriceHistory(
     .order("recorded_at", { ascending: true })
     .limit(200);
 
-  return (data || []).map((row) => ({
+  return (data ?? []).map((row) => ({
     id: String((row as Record<string, unknown>).id ?? ""),
     market_id: String((row as Record<string, unknown>).market_id ?? ""),
     option_id: String((row as Record<string, unknown>).option_id ?? ""),
@@ -163,7 +187,6 @@ export async function getMarketsLeaderboard(): Promise<
 
   if (!data || data.length === 0) return [];
 
-  // Aggregate by user
   const byUser: Record<string, { total_payout: number; wins: number }> = {};
   for (const row of data) {
     const uid = String((row as Record<string, unknown>).user_id ?? "");
@@ -182,11 +205,11 @@ export async function getMarketsLeaderboard(): Promise<
 
   return userIds
     .map((uid) => {
-      const profile = (profiles || []).find(
+      const profile = (profiles ?? []).find(
         (p) => (p as Record<string, unknown>).id === uid
       ) as Record<string, unknown> | undefined;
       return {
-        username: String(profile?.username ?? "Anonymous"),
+        username: String(profile?.username ?? "Anonim"),
         avatar_url: (profile?.avatar_url as string | null) ?? null,
         total_payout: byUser[uid].total_payout,
         wins: byUser[uid].wins,
@@ -207,6 +230,7 @@ export async function adminCreateMarket(params: {
   userId: string;
 }): Promise<{ success: boolean; error?: string; market?: PredictionMarket }> {
   if (!params.title.trim()) return { success: false, error: "Başlık gerekli" };
+  if (!params.end_time) return { success: false, error: "Bitiş tarihi gerekli" };
   if (params.options.length < 2) return { success: false, error: "En az 2 seçenek gerekli" };
   if (params.options.some((o) => !o.trim())) return { success: false, error: "Seçenek etiketleri boş olamaz" };
 
@@ -218,17 +242,22 @@ export async function adminCreateMarket(params: {
       category: params.category,
       end_time: params.end_time,
       created_by: params.userId,
+      status: "open",          // explicit — matches CHECK constraint
+      total_pool: 0,
+      liquidity_constant: 200,
     })
     .select("*")
     .single();
 
   if (mErr || !marketRow) {
-    return { success: false, error: mErr?.message ?? "Market oluşturulamadı" };
+    console.error("adminCreateMarket insert error:", mErr);
+    return { success: false, error: mErr?.message ?? "Tahmin alanı oluşturulamadı" };
   }
 
   const optionInserts = params.options.map((label) => ({
     market_id: (marketRow as Record<string, unknown>).id as string,
     label: label.trim(),
+    pool: 0,
   }));
 
   const { error: oErr } = await supabase
@@ -236,6 +265,7 @@ export async function adminCreateMarket(params: {
     .insert(optionInserts);
 
   if (oErr) {
+    console.error("adminCreateMarket options error:", oErr);
     return { success: false, error: oErr.message };
   }
 
@@ -308,7 +338,7 @@ export async function getUserPositions(
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
-  return (data || []).map((row) => {
+  return (data ?? []).map((row) => {
     const pos = mapPosition(row as Record<string, unknown>);
     const optRaw = (row as Record<string, unknown>).option;
     if (optRaw && typeof optRaw === "object") {

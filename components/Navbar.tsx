@@ -32,7 +32,7 @@ export default function Navbar() {
 
   const navLinks = [
     { href: "/dashboard",   label: "Dashboard",  icon: <LayoutDashboard size={15} /> },
-    { href: "/markets",     label: "Marketler",  icon: <BarChart2 size={15} /> },
+    { href: "/markets",     label: "Tahminler",  icon: <BarChart2 size={15} /> },
     { href: "/leaderboard", label: "Sıralama",   icon: <Trophy size={15} /> },
     { href: "/chat",        label: "Sohbet",      icon: <MessageSquare size={15} /> },
     { href: "/profile",     label: "Profil",      icon: <User size={15} /> },

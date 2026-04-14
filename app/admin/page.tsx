@@ -361,7 +361,7 @@ function MarketAdminPanel() {
     if (!result.success) {
       setError(result.error ?? "Hata oluştu");
     } else {
-      setSuccessMsg("Market oluşturuldu!");
+      setSuccessMsg("Tahmin alanı oluşturuldu!");
       setShowForm(false);
       setFormTitle(""); setFormDesc(""); setFormEndTime(""); setFormOptions(["Evet", "Hayır"]);
       await loadMarkets();
@@ -369,10 +369,10 @@ function MarketAdminPanel() {
   };
 
   const handleClose = async (id: string) => {
-    if (!confirm("Marketi kapatmak istediğinize emin misiniz?")) return;
+    if (!confirm("Tahmin alanını kapatmak istediğinize emin misiniz?")) return;
     const r = await adminCloseMarket(id);
     if (!r.success) setError(r.error ?? "Kapatma hatası");
-    else { setSuccessMsg("Market kapatıldı."); await loadMarkets(); }
+    else { setSuccessMsg("Tahmin alanı kapatıldı."); await loadMarkets(); }
   };
 
   const handleResolve = async (marketId: string, optionId: string) => {
@@ -407,7 +407,7 @@ function MarketAdminPanel() {
       {/* Create Market */}
       <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "12px", padding: "14px", marginBottom: "12px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: showForm ? "14px" : "0" }}>
-          <p style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--text)" }}>Yeni Market</p>
+          <p style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--text)" }}>Yeni Tahmin Alanı</p>
           <button onClick={() => setShowForm(!showForm)} className="btn-primary" style={{ padding: "6px 14px", fontSize: "0.78rem" }}>
             {showForm ? <><Minus size={12} /> Gizle</> : <><Plus size={12} /> Oluştur</>}
           </button>
@@ -448,7 +448,7 @@ function MarketAdminPanel() {
             </div>
 
             <button onClick={handleCreate} disabled={creating} className="btn-primary" style={{ padding: "8px" }}>
-              {creating ? <><Loader2 size={13} className="animate-spin" /> Oluşturuluyor...</> : "Marketi Oluştur"}
+              {creating ? <><Loader2 size={13} className="animate-spin" /> Oluşturuluyor...</> : "Tahmin Alanı Oluştur"}
             </button>
           </div>
         )}
@@ -460,7 +460,7 @@ function MarketAdminPanel() {
           {[1,2,3].map(i => <div key={i} style={{ height: "72px", background: "var(--surface-3)", borderRadius: "10px" }} />)}
         </div>
       ) : markets.length === 0 ? (
-        <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", textAlign: "center", padding: "1.5rem" }}>Henüz market yok.</p>
+        <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", textAlign: "center", padding: "1.5rem" }}>Henüz tahmin alanı yok.</p>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           {markets.map((m) => (
@@ -544,7 +544,7 @@ export default function AdminPage() {
     { id: "users",   label: "Kullanıcılar", badge: pendingUsers.length || undefined, icon: <Users size={14} /> },
     { id: "matches", label: "Maçlar",       icon: <Trophy size={14} /> },
     { id: "chat",    label: "Sohbet",        icon: <MessageSquare size={14} /> },
-    { id: "markets", label: "Marketler",    icon: <BarChart2 size={14} /> },
+    { id: "markets", label: "Tahminler",   icon: <BarChart2 size={14} /> },
   ];
 
   return (

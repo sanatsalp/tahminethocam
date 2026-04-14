@@ -91,6 +91,18 @@ export default function LoginPage() {
             <Link href="/register" style={{ color: "#34d399", fontWeight: 600, textDecoration: "none" }}>Kayıt Ol</Link>
           </p>
         </div>
+
+        {/* Eğlence amaçlı disclaimer */}
+        <p style={{
+          textAlign: "center",
+          fontSize: "0.72rem",
+          color: "var(--text-subtle)",
+          marginTop: "1.1rem",
+          lineHeight: 1.5,
+          padding: "0 0.5rem",
+        }}>
+          🎮 Bu platform yalnızca eğlence amaçlıdır. Gerçek para işlemi yapılmaz.
+        </p>
       </div>
     </div>
   );
