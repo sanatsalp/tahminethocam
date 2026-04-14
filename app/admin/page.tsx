@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useApp } from "@/contexts/AppContext";
-import { Shield, Users, Trophy, PlusCircle, CheckCircle, XCircle, Trash2, Ban, RotateCcw, Coins, MinusCircle, MessageSquare, MessageSquareOff, Settings } from "lucide-react";
+import { Shield, Users, Trophy, PlusCircle, CheckCircle, XCircle, Trash2, Ban, RotateCcw, Coins, MinusCircle, MessageSquare, MessageSquareOff, Settings, BarChart2, Clock, CheckCircle2, Loader2, Plus, Minus } from "lucide-react";
 import { Profile, Match } from "@/lib/mock-data";
 import AuthGuard from "@/components/AuthGuard";
+import { PredictionMarket, MARKET_CATEGORIES } from "@/lib/markets-types";
+import { getMarkets, adminCreateMarket, adminCloseMarket, adminResolveMarket } from "@/app/markets/actions";
 
 
 function Avatar({ user, size = 36 }: { user: Profile; size?: number }) {
@@ -310,7 +312,211 @@ function ChatModPanel() {
   );
 }
 
-type TabId = "users" | "matches" | "chat";
+type TabId = "users" | "matches" | "chat" | "markets";
+
+// ─── Market Admin Panel ─────────────────────────────────────────────────────
+
+function MarketAdminPanel() {
+  const { currentUser } = useApp();
+  const [markets, setMarkets] = useState<PredictionMarket[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [resolving, setResolving] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // Create form state
+  const [showForm, setShowForm] = useState(false);
+  const [formTitle, setFormTitle] = useState("");
+  const [formDesc, setFormDesc] = useState("");
+  const [formCategory, setFormCategory] = useState("Spor");
+  const [formEndTime, setFormEndTime] = useState("");
+  const [formOptions, setFormOptions] = useState(["Evet", "Hayır"]);
+
+  const loadMarkets = useCallback(async () => {
+    setLoading(true);
+    const data = await getMarkets("all");
+    // Also fetch resolved
+    const resolved = await getMarkets("resolved");
+    const allById = new Map([...data, ...resolved].map((m) => [m.id, m]));
+    setMarkets(Array.from(allById.values()).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadMarkets(); }, [loadMarkets]);
+
+  const handleCreate = async () => {
+    if (!currentUser) return;
+    setCreating(true);
+    setError(null);
+    const result = await adminCreateMarket({
+      title: formTitle,
+      description: formDesc,
+      category: formCategory,
+      end_time: formEndTime ? new Date(formEndTime).toISOString() : "",
+      options: formOptions,
+      userId: currentUser.id,
+    });
+    setCreating(false);
+    if (!result.success) {
+      setError(result.error ?? "Hata oluştu");
+    } else {
+      setSuccessMsg("Market oluşturuldu!");
+      setShowForm(false);
+      setFormTitle(""); setFormDesc(""); setFormEndTime(""); setFormOptions(["Evet", "Hayır"]);
+      await loadMarkets();
+    }
+  };
+
+  const handleClose = async (id: string) => {
+    if (!confirm("Marketi kapatmak istediğinize emin misiniz?")) return;
+    const r = await adminCloseMarket(id);
+    if (!r.success) setError(r.error ?? "Kapatma hatası");
+    else { setSuccessMsg("Market kapatıldı."); await loadMarkets(); }
+  };
+
+  const handleResolve = async (marketId: string, optionId: string) => {
+    if (!confirm("Bu seçenek kazanan olarak işaretlenecek. Geri alınamaz — devam etmek istiyor musunuz?")) return;
+    setResolving(marketId);
+    const r = await adminResolveMarket(marketId, optionId);
+    setResolving(null);
+    if (!r.success) setError(r.error ?? "Çözüm hatası");
+    else { setSuccessMsg(`Çözüldü: ${r.winners} kazanan, ${r.totalPayout} kredi dağıtıldı.`); await loadMarkets(); }
+  };
+
+  const statusColor = (s: string) => s === "open" ? "#34d399" : s === "closed" ? "#fbbf24" : "#6b7280";
+
+  return (
+    <div>
+      {/* Messages */}
+      {successMsg && (
+        <div style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.25)", borderRadius: "10px", padding: "10px 14px", marginBottom: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
+          <CheckCircle2 size={14} color="#34d399" />
+          <span style={{ fontSize: "0.82rem", color: "#34d399" }}>{successMsg}</span>
+          <button onClick={() => setSuccessMsg(null)} style={{ background: "none", border: "none", color: "#34d399", cursor: "pointer", marginLeft: "auto", fontSize: "0.75rem" }}>✕</button>
+        </div>
+      )}
+      {error && (
+        <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: "10px", padding: "10px 14px", marginBottom: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
+          <XCircle size={14} color="#f87171" />
+          <span style={{ fontSize: "0.82rem", color: "#f87171" }}>{error}</span>
+          <button onClick={() => setError(null)} style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", marginLeft: "auto", fontSize: "0.75rem" }}>✕</button>
+        </div>
+      )}
+
+      {/* Create Market */}
+      <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "12px", padding: "14px", marginBottom: "12px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: showForm ? "14px" : "0" }}>
+          <p style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--text)" }}>Yeni Market</p>
+          <button onClick={() => setShowForm(!showForm)} className="btn-primary" style={{ padding: "6px 14px", fontSize: "0.78rem" }}>
+            {showForm ? <><Minus size={12} /> Gizle</> : <><Plus size={12} /> Oluştur</>}
+          </button>
+        </div>
+
+        {showForm && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <input className="input" placeholder="Başlık (örn: ODTÜ finalleri geçilecek mi?)" value={formTitle} onChange={e => setFormTitle(e.target.value)} style={{ fontSize: "0.82rem" }} />
+            <input className="input" placeholder="Açıklama (isteğe bağlı)" value={formDesc} onChange={e => setFormDesc(e.target.value)} style={{ fontSize: "0.82rem" }} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <select className="input" value={formCategory} onChange={e => setFormCategory(e.target.value)} style={{ fontSize: "0.82rem" }}>
+                {MARKET_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+              </select>
+              <input className="input" type="datetime-local" value={formEndTime} onChange={e => setFormEndTime(e.target.value)} style={{ fontSize: "0.82rem" }} />
+            </div>
+
+            <div>
+              <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "6px", fontWeight: 600 }}>Seçenekler (min 2)</p>
+              {formOptions.map((opt, i) => (
+                <div key={i} style={{ display: "flex", gap: "6px", marginBottom: "6px" }}>
+                  <input className="input" placeholder={`Seçenek ${i + 1}`} value={opt}
+                    onChange={e => { const next = [...formOptions]; next[i] = e.target.value; setFormOptions(next); }}
+                    style={{ fontSize: "0.82rem" }} />
+                  {formOptions.length > 2 && (
+                    <button onClick={() => setFormOptions(formOptions.filter((_, j) => j !== i))}
+                      style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "8px", padding: "6px 10px", color: "#f87171", cursor: "pointer" }}>
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {formOptions.length < 4 && (
+                <button onClick={() => setFormOptions([...formOptions, ""])}
+                  style={{ fontSize: "0.75rem", background: "var(--surface-3)", border: "1px solid var(--border)", borderRadius: "8px", padding: "4px 10px", color: "var(--text-muted)", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}>
+                  <Plus size={11} /> Seçenek ekle
+                </button>
+              )}
+            </div>
+
+            <button onClick={handleCreate} disabled={creating} className="btn-primary" style={{ padding: "8px" }}>
+              {creating ? <><Loader2 size={13} className="animate-spin" /> Oluşturuluyor...</> : "Marketi Oluştur"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Market list */}
+      {loading ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {[1,2,3].map(i => <div key={i} style={{ height: "72px", background: "var(--surface-3)", borderRadius: "10px" }} />)}
+        </div>
+      ) : markets.length === 0 ? (
+        <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", textAlign: "center", padding: "1.5rem" }}>Henüz market yok.</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {markets.map((m) => (
+            <div key={m.id} style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "12px", padding: "14px" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "10px", marginBottom: "8px" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
+                    <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "1px 7px", borderRadius: "20px", background: `${statusColor(m.status)}18`, color: statusColor(m.status), border: `1px solid ${statusColor(m.status)}30` }}>{m.status}</span>
+                    <span style={{ fontSize: "0.65rem", color: "var(--text-subtle)" }}>{m.category}</span>
+                  </div>
+                  <p style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text)" }}>{m.title}</p>
+                  <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                    {(m.total_pool || 0).toLocaleString("tr-TR")} kredi · {(m.options ?? []).length} seçenek · {new Date(m.end_time).toLocaleString("tr-TR")}
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: "6px", flexShrink: 0, flexWrap: "wrap" }}>
+                  {m.status === "open" && (
+                    <button onClick={() => handleClose(m.id)}
+                      style={{ display: "flex", alignItems: "center", gap: "4px", background: "rgba(234,179,8,0.1)", border: "1px solid rgba(234,179,8,0.25)", borderRadius: "8px", padding: "4px 10px", color: "#fbbf24", cursor: "pointer", fontSize: "0.75rem" }}>
+                      <Clock size={11} /> Kapat
+                    </button>
+                  )}
+                  <Link href={`/markets/${m.id}`} style={{ display: "flex", alignItems: "center", gap: "4px", background: "var(--surface-3)", border: "1px solid var(--border)", borderRadius: "8px", padding: "4px 10px", color: "var(--text-muted)", textDecoration: "none", fontSize: "0.75rem" }}>
+                    Görüntüle
+                  </Link>
+                </div>
+              </div>
+
+              {/* Resolve UI for closed/open markets with no winner yet */}
+              {m.status !== "resolved" && (m.options ?? []).length > 0 && (
+                <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: "1px solid var(--border)" }}>
+                  <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: "6px", fontWeight: 600 }}>Sonucu Onayla:</p>
+                  <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+                    {(m.options ?? []).map(opt => (
+                      <button key={opt.id} onClick={() => handleResolve(m.id, opt.id)}
+                        disabled={resolving === m.id}
+                        style={{ display: "flex", alignItems: "center", gap: "4px", background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: "8px", padding: "4px 12px", color: "#34d399", cursor: resolving === m.id ? "not-allowed" : "pointer", fontSize: "0.75rem", fontWeight: 600, opacity: resolving === m.id ? 0.6 : 1 }}>
+                        {resolving === m.id ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {m.status === "resolved" && m.winning_option_id && (
+                <p style={{ fontSize: "0.72rem", color: "#34d399", marginTop: "6px" }}>
+                  🏆 Kazanan: {(m.options ?? []).find(o => o.id === m.winning_option_id)?.label}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AdminPage() {
   const { users, matches, chatMessages, chatEnabled, ensureAdminData, currentUser } = useApp();
@@ -338,6 +544,7 @@ export default function AdminPage() {
     { id: "users",   label: "Kullanıcılar", badge: pendingUsers.length || undefined, icon: <Users size={14} /> },
     { id: "matches", label: "Maçlar",       icon: <Trophy size={14} /> },
     { id: "chat",    label: "Sohbet",        icon: <MessageSquare size={14} /> },
+    { id: "markets", label: "Marketler",    icon: <BarChart2 size={14} /> },
   ];
 
   return (
@@ -467,6 +674,7 @@ export default function AdminPage() {
         )}
 
         {tab === "chat" && <ChatModPanel />}
+        {tab === "markets" && <MarketAdminPanel />}
         </>
         )}
       </div>

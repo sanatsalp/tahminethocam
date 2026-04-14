@@ -163,6 +163,23 @@ html[data-theme="light"] {
   .badge-user     { background:rgba(16,185,129,0.12); color:#34d399;  border:1px solid rgba(16,185,129,0.25); font-size:.68rem; font-weight:700; padding:.2rem .55rem; border-radius:9999px; display:inline-flex; align-items:center; gap:3px; }
   .badge-admin    { background:rgba(168,85,247,0.12); color:#c084fc;  border:1px solid rgba(168,85,247,0.25); font-size:.68rem; font-weight:700; padding:.2rem .55rem; border-radius:9999px; display:inline-flex; align-items:center; gap:3px; }
   .badge-blocked  { background:rgba(239,68,68,0.12);  color:#f87171;  border:1px solid rgba(239,68,68,0.25);  font-size:.68rem; font-weight:700; padding:.2rem .55rem; border-radius:9999px; display:inline-flex; align-items:center; gap:3px; }
+  .badge-resolved { background:rgba(107,114,128,0.12); color:#9ca3af; border:1px solid rgba(107,114,128,0.25); font-size:.68rem; font-weight:700; padding:.2rem .55rem; border-radius:9999px; display:inline-flex; align-items:center; gap:3px; }
+
+  /* --- Market probability bars --- */
+  .market-bar {
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--surface-3);
+    overflow: hidden;
+  }
+  .market-bar-fill {
+    height: 100%;
+    border-radius: 9999px;
+    transition: width 0.5s ease;
+  }
+  .market-card-hover {
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
 
   /* --- Navbar --- */
   .navbar {
@@ -223,4 +240,39 @@ html[data-theme="light"] .chat-bubble-other {
   background: #f1f5f9;
   color: #0f172a;
   border: 1px solid rgba(15,23,42,0.1);
+}
+
+/* ============================================================
+   MARKETS MODULE — RESPONSIVE LAYOUTS
+============================================================ */
+.markets-layout {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.markets-sidebar {
+  position: sticky;
+  top: 80px;
+}
+
+.market-detail-layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .markets-layout {
+    grid-template-columns: 1fr;
+  }
+  .markets-sidebar {
+    position: static;
+    order: -1;
+  }
+  .market-detail-layout {
+    grid-template-columns: 1fr;
+  }
 }

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useApp } from "@/contexts/AppContext";
 import { useTheme } from "@/contexts/ThemeContext";
-import { Trophy, LayoutDashboard, User, Shield, LogOut, Menu, X, MessageSquare, Sun, Moon, Settings } from "lucide-react";
+import { Trophy, LayoutDashboard, User, Shield, LogOut, Menu, X, MessageSquare, Sun, Moon, Settings, BarChart2 } from "lucide-react";
 import { useState } from "react";
 
 function Avatar({ user, size = "sm" }: { user: { username: string; avatarUrl?: string }; size?: "sm" | "md" }) {
@@ -32,6 +32,7 @@ export default function Navbar() {
 
   const navLinks = [
     { href: "/dashboard",   label: "Dashboard",  icon: <LayoutDashboard size={15} /> },
+    { href: "/markets",     label: "Marketler",  icon: <BarChart2 size={15} /> },
     { href: "/leaderboard", label: "Sıralama",   icon: <Trophy size={15} /> },
     { href: "/chat",        label: "Sohbet",      icon: <MessageSquare size={15} /> },
     { href: "/profile",     label: "Profil",      icon: <User size={15} /> },
