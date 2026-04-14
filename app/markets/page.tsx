@@ -159,61 +159,6 @@ function TahminCardSkeleton() {
   );
 }
 
-// ─── Liderlik Tablosu ─────────────────────────────────────────────────────────
-
-function LiderlikTablosu() {
-  const { users, ensureLeaderboardUsers } = useApp();
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    ensureLeaderboardUsers().finally(() => {
-      if (alive) setLoading(false);
-    });
-    return () => { alive = false; };
-  }, [ensureLeaderboardUsers]);
-
-  const topUsers = [...users].filter(u => u.role === "user" || u.role === "admin").sort((a, b) => b.credits - a.credits).slice(0, 10);
-
-  return (
-    <Link href="/leaderboard" style={{ textDecoration: "none", display: "block" }}>
-      <div className="card market-card-hover" style={{ padding: "1.1rem" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.9rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
-            <TrendingUp size={15} color="#34d399" />
-            <h3 style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text)" }}>Genel Liderlik</h3>
-          </div>
-          <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Tümü &rarr;</span>
-        </div>
-        
-        {loading ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
-            {[1, 2, 3].map((i) => <div key={i} style={{ height: "32px", background: "var(--surface-3)", borderRadius: "7px" }} />)}
-          </div>
-        ) : topUsers.length === 0 ? (
-          <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Henüz kullanıcı yok.</p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
-            {topUsers.map((l, i) => (
-              <div key={l.username} style={{
-                display: "flex", alignItems: "center", gap: "8px",
-                padding: "5px 7px", borderRadius: "7px",
-                background: i === 0 ? "rgba(16,185,129,0.06)" : "transparent",
-              }}>
-                <span style={{ fontSize: "0.72rem", fontWeight: 700, color: i === 0 ? "#34d399" : i < 3 ? "#fbbf24" : "var(--text-subtle)", minWidth: "16px" }}>#{i + 1}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.username}</p>
-                </div>
-                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#34d399", flexShrink: 0 }}>{l.credits.toLocaleString("tr-TR")}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </Link>
-  );
-}
-
 // ─── Ana Sayfa ────────────────────────────────────────────────────────────────
 
 const FILTER_TABS: { id: MarketsFilter; label: string; icon: React.ReactNode }[] = [
@@ -326,58 +271,50 @@ function TahminlerInner() {
         </div>
       </div>
 
-      {/* Two-column layout */}
-      <div className="markets-layout">
-        {/* Sol sütun */}
-        <div>
-          {/* Filtre sekmeleri */}
-          <div style={{
-            display: "flex", gap: "3px", padding: "3px",
-            background: "var(--surface-2)", border: "1px solid var(--border)",
-            borderRadius: "11px", marginBottom: "1rem", overflowX: "auto",
-          }}>
-            {FILTER_TABS.map((t) => (
-              <button
-                key={t.id}
-                id={`tahmin-filter-${t.id}`}
-                onClick={() => setFilter(t.id)}
-                style={{
-                  display: "flex", alignItems: "center", gap: "4px",
-                  padding: "6px 12px", borderRadius: "8px", fontSize: "0.76rem", fontWeight: 500,
-                  border: filter === t.id ? "1px solid rgba(99,102,241,0.3)" : "1px solid transparent",
-                  background: filter === t.id ? "rgba(99,102,241,0.12)" : "transparent",
-                  color: filter === t.id ? "#818cf8" : "var(--text-muted)",
-                  cursor: "pointer", transition: "all 0.2s", whiteSpace: "nowrap", flexShrink: 0,
-                }}
-              >
-                {t.icon}{t.label}
-              </button>
-            ))}
+      {/* Single-column Layout for Markets */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+        {/* Filtre sekmeleri container */}
+        <div style={{
+          display: "flex", gap: "3px", padding: "3px",
+          background: "var(--surface-2)", border: "1px solid var(--border)",
+          borderRadius: "11px", overflowX: "auto",
+        }}>
+          {FILTER_TABS.map((t) => (
+            <button
+              key={t.id}
+              id={`tahmin-filter-${t.id}`}
+              onClick={() => setFilter(t.id)}
+              style={{
+                display: "flex", alignItems: "center", gap: "4px",
+                padding: "6px 12px", borderRadius: "8px", fontSize: "0.76rem", fontWeight: 500,
+                border: filter === t.id ? "1px solid rgba(99,102,241,0.3)" : "1px solid transparent",
+                background: filter === t.id ? "rgba(99,102,241,0.12)" : "transparent",
+                color: filter === t.id ? "#818cf8" : "var(--text-muted)",
+                cursor: "pointer", transition: "all 0.2s", whiteSpace: "nowrap", flexShrink: 0,
+              }}
+            >
+              {t.icon}{t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Grid List */}
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {[1, 2, 3, 4, 5, 6].map((i) => <TahminCardSkeleton key={i} />)}
           </div>
-
-          {/* Grid */}
-          {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {[1, 2, 3, 4].map((i) => <TahminCardSkeleton key={i} />)}
-            </div>
-          ) : markets.length === 0 ? (
-            <div className="card" style={{ padding: "2rem", textAlign: "center" }}>
-              <BarChart2 size={28} color="var(--text-subtle)" style={{ margin: "0 auto 8px" }} />
-              <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
-                Bu filtre için tahmin alanı bulunamadı.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {markets.map((m) => <TahminCard key={m.id} market={m} />)}
-            </div>
-          )}
-        </div>
-
-        {/* Sağ sütun — liderlik */}
-        <div className="markets-sidebar">
-          <LiderlikTablosu />
-        </div>
+        ) : markets.length === 0 ? (
+          <div className="card" style={{ padding: "2rem", textAlign: "center" }}>
+            <BarChart2 size={28} color="var(--text-subtle)" style={{ margin: "0 auto 8px" }} />
+            <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
+              Bu filtre için tahmin alanı bulunamadı.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {markets.map((m) => <TahminCard key={m.id} market={m} />)}
+          </div>
+        )}
       </div>
     </div>
   );
