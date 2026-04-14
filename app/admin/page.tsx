@@ -161,42 +161,106 @@ function UserCard({ user }: { user: Profile }) {
 }
 
 function MatchRow({ match }: { match: Match }) {
-  const { closeMatch, deleteMatch } = useApp();
+  const { closeMatch, deleteMatch, updateMatch } = useApp();
   const [showWinner, setShowWinner] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [form, setForm] = useState({
+    title: match.title,
+    player_a: match.player_a,
+    player_b: match.player_b,
+    odds_a: String(match.odds_a),
+    odds_b: String(match.odds_b),
+  });
+
+  const handleSave = async () => {
+    setSaving(true);
+    await updateMatch(match.id, {
+      title: form.title,
+      player_a: form.player_a,
+      player_b: form.player_b,
+      odds_a: parseFloat(form.odds_a) || 1,
+      odds_b: parseFloat(form.odds_b) || 1,
+    });
+    setSaving(false);
+    setIsEditing(false);
+  };
+
+  if (isEditing) {
+    return (
+      <div style={{ background: "var(--surface-2)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: "12px", padding: "14px" }}>
+        <p style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text)", marginBottom: "8px" }}>Maçı Düzenle</p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "8px" }}>
+          <div>
+            <label style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>A Takımı/Oyuncu</label>
+            <input className="input" value={form.player_a} onChange={e => setForm({...form, player_a: e.target.value})} style={{ padding: "6px", fontSize: "0.8rem", width: "100%" }} />
+          </div>
+          <div>
+            <label style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>B Takımı/Oyuncu</label>
+            <input className="input" value={form.player_b} onChange={e => setForm({...form, player_b: e.target.value})} style={{ padding: "6px", fontSize: "0.8rem", width: "100%" }} />
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "8px" }}>
+          <div>
+            <label style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>A Oranı</label>
+            <input type="number" step="0.1" className="input" value={form.odds_a} onChange={e => setForm({...form, odds_a: e.target.value})} style={{ padding: "6px", fontSize: "0.8rem", width: "100%" }} />
+          </div>
+          <div>
+            <label style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>B Oranı</label>
+            <input type="number" step="0.1" className="input" value={form.odds_b} onChange={e => setForm({...form, odds_b: e.target.value})} style={{ padding: "6px", fontSize: "0.8rem", width: "100%" }} />
+          </div>
+        </div>
+        <div style={{ marginBottom: "12px" }}>
+          <label style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Başlık</label>
+          <input className="input" value={form.title} onChange={e => setForm({...form, title: e.target.value})} style={{ padding: "6px", fontSize: "0.8rem", width: "100%" }} />
+        </div>
+        <div style={{ display: "flex", gap: "6px" }}>
+          <button onClick={handleSave} disabled={saving} className="btn-primary" style={{ padding: "6px 12px", fontSize: "0.8rem" }}>
+            {saving ? "Kaydediliyor..." : "Kaydet"}
+          </button>
+          <button onClick={() => setIsEditing(false)} disabled={saving} className="btn-secondary" style={{ padding: "6px 12px", fontSize: "0.8rem" }}>İptal</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: "12px", padding: "14px" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px", flexWrap: "wrap", gap: "8px" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontWeight: 600, fontSize: "0.88rem", color: "var(--text)" }}>
             {match.player_a} vs {match.player_b}
           </p>
           <p style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{match.tournament} · {match.title}</p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "12px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
           {match.status === "open"     && <span className="badge-open">Açık</span>}
           {match.status === "closed"   && <span className="badge-closed">Kapalı</span>}
           {match.status === "finished" && <span className="badge-finished">Bitti</span>}
-          {match.winner && <span style={{ fontSize: "0.72rem", color: "#34d399" }}>
+          {match.winner && <span style={{ fontSize: "0.72rem", color: "#34d399", background: "rgba(16,185,129,0.1)", padding: "2px 6px", borderRadius: "10px" }}>
             🏆 {match.winner === "A" ? match.player_a : match.player_b}
           </span>}
         </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-        <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginTop: "12px" }}>
+        <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", background: "var(--surface-3)", padding: "3px 8px", borderRadius: "8px", border: "1px solid var(--border)" }}>
           A: <strong style={{ color: "var(--text)" }}>{match.odds_a.toFixed(2)}</strong> &nbsp;
           B: <strong style={{ color: "var(--text)" }}>{match.odds_b.toFixed(2)}</strong>
         </span>
+
         {match.status !== "finished" && !showWinner && (
           <button onClick={() => setShowWinner(true)}
             style={{ display: "flex", alignItems: "center", gap: "4px", background: "rgba(249,115,22,0.1)",
               border: "1px solid rgba(249,115,22,0.25)", borderRadius: "7px", padding: "4px 10px",
               color: "#fb923c", cursor: "pointer", fontSize: "0.75rem" }}>
-            🏆 Maçı Bitir
+            Maçı Bitir
           </button>
         )}
+        
         {showWinner && (
-          <div style={{ display: "flex", alignItems: "center", gap: "5px", flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "5px", flex: 1, minWidth: "100%", marginTop: "8px" }}>
             <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Kazanan:</span>
             <button onClick={() => { closeMatch(match.id, "A"); setShowWinner(false); }}
               style={{ flex: 1, background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.25)",
@@ -214,12 +278,22 @@ function MatchRow({ match }: { match: Match }) {
             </button>
           </div>
         )}
-        <button onClick={() => { if (confirm("Maç silinsin mi?")) deleteMatch(match.id); }}
-          style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-subtle)",
-            cursor: "pointer", padding: "4px", display: "flex", alignItems: "center" }}
-          title="Maçı sil">
-          <Trash2 size={13} />
-        </button>
+
+        {/* Action icons (Edit & Delete) */}
+        <div style={{ marginLeft: "auto", display: "flex", gap: "6px" }}>
+          {match.status !== "finished" && (
+            <button onClick={() => setIsEditing(true)}
+              style={{ background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.2)", color: "#818cf8",
+                cursor: "pointer", padding: "5px 10px", borderRadius: "6px", display: "flex", alignItems: "center", fontSize: "0.75rem", gap: "4px" }}>
+              Düzenle
+            </button>
+          )}
+          <button onClick={() => { if (confirm("Maç silinsin mi?")) deleteMatch(match.id); }}
+            style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", color: "#f87171",
+              cursor: "pointer", padding: "5px 10px", borderRadius: "6px", display: "flex", alignItems: "center", fontSize: "0.75rem", gap: "4px" }}>
+            <Trash2 size={12} /> Sil
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -60,7 +60,7 @@ export async function getMarkets(
   // Build base query — always join options inline
   let query = supabase
     .from("prediction_markets")
-    .select("*, options:prediction_options(id,market_id,label,pool,created_at)");
+    .select("*, options:prediction_options!prediction_options_market_id_fkey(id,market_id,label,pool,created_at)");
 
   switch (filter) {
     case "trending":
@@ -127,7 +127,7 @@ export async function getMarketDetail(
 ): Promise<PredictionMarket | null> {
   const { data, error } = await supabase
     .from("prediction_markets")
-    .select("*, options:prediction_options(id,market_id,label,pool,created_at)")
+    .select("*, options:prediction_options!prediction_options_market_id_fkey(id,market_id,label,pool,created_at)")
     .eq("id", marketId)
     .single();
 

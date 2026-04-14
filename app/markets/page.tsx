@@ -162,47 +162,55 @@ function TahminCardSkeleton() {
 // ─── Liderlik Tablosu ─────────────────────────────────────────────────────────
 
 function LiderlikTablosu() {
-  const [leaders, setLeaders] = useState<Awaited<ReturnType<typeof getMarketsLeaderboard>>>([]);
+  const { users, ensureLeaderboardUsers } = useApp();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getMarketsLeaderboard().then((data) => {
-      setLeaders(data);
-      setLoading(false);
+    let alive = true;
+    ensureLeaderboardUsers().finally(() => {
+      if (alive) setLoading(false);
     });
-  }, []);
+    return () => { alive = false; };
+  }, [ensureLeaderboardUsers]);
+
+  const topUsers = [...users].filter(u => u.role === "user" || u.role === "admin").sort((a, b) => b.credits - a.credits).slice(0, 10);
 
   return (
-    <div className="card" style={{ padding: "1.1rem" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "7px", marginBottom: "0.9rem" }}>
-        <TrendingUp size={15} color="#34d399" />
-        <h3 style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text)" }}>Tahmin Liderleri</h3>
-      </div>
-      {loading ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
-          {[1, 2, 3].map((i) => <div key={i} style={{ height: "32px", background: "var(--surface-3)", borderRadius: "7px" }} />)}
+    <Link href="/leaderboard" style={{ textDecoration: "none", display: "block" }}>
+      <div className="card market-card-hover" style={{ padding: "1.1rem" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.9rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+            <TrendingUp size={15} color="#34d399" />
+            <h3 style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text)" }}>Genel Liderlik</h3>
+          </div>
+          <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Tümü &rarr;</span>
         </div>
-      ) : leaders.length === 0 ? (
-        <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Henüz kazanım yok.</p>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
-          {leaders.slice(0, 10).map((l, i) => (
-            <div key={l.username} style={{
-              display: "flex", alignItems: "center", gap: "8px",
-              padding: "5px 7px", borderRadius: "7px",
-              background: i === 0 ? "rgba(16,185,129,0.06)" : "transparent",
-            }}>
-              <span style={{ fontSize: "0.72rem", fontWeight: 700, color: i === 0 ? "#34d399" : "var(--text-subtle)", minWidth: "16px" }}>#{i + 1}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.username}</p>
-                <p style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>{l.wins} kazanım</p>
+        
+        {loading ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
+            {[1, 2, 3].map((i) => <div key={i} style={{ height: "32px", background: "var(--surface-3)", borderRadius: "7px" }} />)}
+          </div>
+        ) : topUsers.length === 0 ? (
+          <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Henüz kullanıcı yok.</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+            {topUsers.map((l, i) => (
+              <div key={l.username} style={{
+                display: "flex", alignItems: "center", gap: "8px",
+                padding: "5px 7px", borderRadius: "7px",
+                background: i === 0 ? "rgba(16,185,129,0.06)" : "transparent",
+              }}>
+                <span style={{ fontSize: "0.72rem", fontWeight: 700, color: i === 0 ? "#34d399" : i < 3 ? "#fbbf24" : "var(--text-subtle)", minWidth: "16px" }}>#{i + 1}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.username}</p>
+                </div>
+                <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#34d399", flexShrink: 0 }}>{l.credits.toLocaleString("tr-TR")}</span>
               </div>
-              <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#34d399", flexShrink: 0 }}>+{l.total_payout.toLocaleString("tr-TR")}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Link>
   );
 }
 

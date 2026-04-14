@@ -37,6 +37,7 @@ interface AppContextType extends AppState {
   addCredits: (userId: string, amount: number) => Promise<void>;
   removeCredits: (userId: string, amount: number) => Promise<void>;
   createMatch: (match: Omit<Match, "id" | "winner" | "status">) => Promise<void>;
+  updateMatch: (id: string, updates: Partial<Match>) => Promise<{ success: boolean; error?: string }>;
   closeMatch: (matchId: string, winner: "A" | "B") => Promise<void>;
   deleteMatch: (matchId: string) => Promise<void>;
   toggleChatEnabled: () => Promise<void>;
@@ -180,6 +181,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [mapSettings]);
 
   const fetchProfile = useCallback(async (userId: string) => {
+    // Attempt to claim weekly credits silently in the background FIRST
+    try {
+      await supabase.rpc("claim_weekly_credits", { p_user_id: userId });
+    } catch (e) {
+      // Ignore errors for silent claim
+    }
+
     const { data: row } = await supabase.from("profiles").select(PROFILE_SELECT).eq("id", userId).single();
     const mapped = row ? mapProfile(row as Record<string, unknown>) : null;
     if (mapped) {
@@ -965,6 +973,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const deleteMatch = async (matchId: string) => {
     await supabase.from("matches").delete().eq("id", matchId);
+    setState(s => ({
+      ...s,
+      matches: s.matches.filter(m => m.id !== matchId),
+      openMatches: s.openMatches.filter(m => m.id !== matchId)
+    }));
+  };
+
+  const updateMatch = async (matchId: string, updates: Partial<Match>) => {
+    const { data: updated, error } = await supabase
+      .from("matches")
+      .update(updates)
+      .eq("id", matchId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Match update error:", error.message);
+      return { success: false, error: error.message };
+    }
+
+    setState(s => {
+      const updateArr = (arr: Match[]) => arr.map(m => m.id === matchId ? { ...m, ...updated } : m);
+      return {
+        ...s,
+        matches: updateArr(s.matches),
+        openMatches: updateArr(s.openMatches)
+      };
+    });
+
+    return { success: true };
   };
 
   // ── Admin - Chat / Settings ───────────────────────────────
@@ -1074,7 +1112,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       login, logout, register, setUserAvatar,
       placePrediction,
       approveUser, rejectUser, deleteUser, blockUser, unblockUser, addCredits, removeCredits,
-      createMatch, closeMatch, deleteMatch,
+      createMatch, closeMatch, deleteMatch, updateMatch,
       toggleChatEnabled, blockUserFromChat, unblockUserFromChat, deleteChatMessage, pinChatMessage, unpinChatMessage,
       updateSiteSettings,
       sendChatMessage,
